@@ -313,6 +313,7 @@ var Calendar = React.createClass({
         {this.renderNextMonthButton()}
         {this.renderMonths()}
         {this.renderTodayButton()}
+        {this.props.children}
       </div>
     )
   }
