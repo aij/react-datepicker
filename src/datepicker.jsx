@@ -22,6 +22,7 @@ var DatePicker = React.createClass({
     autoComplete: React.PropTypes.string,
     autoFocus: React.PropTypes.bool,
     className: React.PropTypes.string,
+    containerClassName: React.PropTypes.string,
     customInput: React.PropTypes.element,
     dateFormat: React.PropTypes.oneOfType([
       React.PropTypes.string,
@@ -300,6 +301,10 @@ var DatePicker = React.createClass({
     if (this.props.inline) {
       return calendar
     } else {
+      const className = classnames(
+        'react-datepicker__input-container',
+        this.props.containerClassName
+      )
       return (
         <TetherComponent
             classPrefix={'react-datepicker__tether'}
@@ -308,7 +313,7 @@ var DatePicker = React.createClass({
             targetOffset={this.props.popoverTargetOffset}
             renderElementTo={this.props.renderCalendarTo}
             constraints={this.props.tetherConstraints}>
-          <div className="react-datepicker__input-container">
+          <div className={className}>
             {this.renderDateInput()}
             {this.renderClearButton()}
           </div>
