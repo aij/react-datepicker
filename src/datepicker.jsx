@@ -302,8 +302,8 @@ var DatePicker = React.createClass({
       return calendar
     } else {
       const className = classnames(
-	"react-datepicker__input-container",
-	this.props.containerClassName
+        'react-datepicker__input-container',
+        this.props.containerClassName
       )
       return (
         <TetherComponent
