@@ -1,6 +1,5 @@
-import moment from 'moment'
 import React from 'react'
-import { isSameDay, isDayDisabled } from './date_utils'
+import { isSameDay, isDayDisabled, parseDate, safeDateFormat } from './date_utils'
 
 var DateInput = React.createClass({
   displayName: 'DateInput',
@@ -32,21 +31,26 @@ var DateInput = React.createClass({
 
   getInitialState () {
     return {
-      value: this.safeDateFormat(this.props)
+      value: safeDateFormat(this.props.date, this.props)
     }
   },
 
   componentWillReceiveProps (newProps) {
-    if (!isSameDay(newProps.date, this.props.date) ||
+    const inputDate = parseDate(this.state.value, newProps)
+    const dateChanged = !isSameDay(newProps.date, this.props.date) &&
+          !isSameDay(newProps.date, inputDate)
+    console.log('DateInput new props. Changed =', dateChanged, {newProps, oldProps: this.props, inputDate, state: this.state})
+    if (dateChanged ||
           newProps.locale !== this.props.locale ||
           newProps.dateFormat !== this.props.dateFormat) {
       this.setState({
-        value: this.safeDateFormat(newProps)
+        value: safeDateFormat(newProps.date, newProps)
       })
     }
   },
 
   handleChange (event) {
+    console.log('handleChange(', event, ')')
     if (this.props.onChange) {
       this.props.onChange(event)
     }
@@ -56,26 +60,21 @@ var DateInput = React.createClass({
   },
 
   handleChangeDate (value) {
+    console.log('handleChangeDate(', value, ')')
+    this.setState({value})
     if (this.props.onChangeDate) {
-      var date = moment(value, this.props.dateFormat, this.props.locale || moment.locale(), true)
-      if (date.isValid() && !isDayDisabled(date, this.props)) {
+      var date = parseDate(value, this.props)
+      if (date && !isDayDisabled(date, this.props)) {
         this.props.onChangeDate(date)
       } else if (value === '') {
         this.props.onChangeDate(null)
       }
     }
-    this.setState({value})
-  },
-
-  safeDateFormat (props) {
-    return props.date && props.date.clone()
-      .locale(props.locale || moment.locale())
-      .format(Array.isArray(props.dateFormat) ? props.dateFormat[0] : props.dateFormat) || ''
   },
 
   handleBlur (event) {
     this.setState({
-      value: this.safeDateFormat(this.props)
+      value: safeDateFormat(this.props.date, this.props)
     })
     if (this.props.onBlur) {
       this.props.onBlur(event)
