@@ -38,7 +38,10 @@ var DateInput = React.createClass({
 
   componentWillReceiveProps (newProps) {
     const inputDate = this.parseDate(this.state.value, newProps)
-    if (!isSameDay(newProps.date, this.props.date) && !isSameDay(newProps.date, inputDate) ||
+    const dateChanged = !isSameDay(newProps.date, this.props.date) &&
+          !isSameDay(newProps.date, inputDate)
+    console.log('DateInput new props. Changed =', dateChanged, {newProps, oldProps: this.props, inputDate, state: this.state})
+    if (dateChanged ||
           newProps.locale !== this.props.locale ||
           newProps.dateFormat !== this.props.dateFormat) {
       this.setState({
@@ -53,6 +56,7 @@ var DateInput = React.createClass({
   },
 
   handleChange (event) {
+    console.log('handleChange(', event, ')')
     if (this.props.onChange) {
       this.props.onChange(event)
     }
@@ -62,6 +66,8 @@ var DateInput = React.createClass({
   },
 
   handleChangeDate (value) {
+    console.log('handleChangeDate(', value, ')')
+    this.setState({value})
     if (this.props.onChangeDate) {
       var date = this.parseDate(value, this.props)
       if (date && !isDayDisabled(date, this.props)) {
@@ -70,7 +76,6 @@ var DateInput = React.createClass({
         this.props.onChangeDate(null)
       }
     }
-    this.setState({value})
   },
 
   safeDateFormat (props) {
