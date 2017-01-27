@@ -480,7 +480,7 @@
 
 /***/ },
 /* 6 */
-[635, 7],
+[634, 7],
 /* 7 */
 /***/ function(module, exports) {
 
@@ -3110,7 +3110,7 @@
 
 	'use strict';
 
-	module.exports = '15.4.1';
+	module.exports = '15.4.2';
 
 /***/ },
 /* 28 */
@@ -3307,6 +3307,13 @@
 	var internalInstanceKey = '__reactInternalInstance$' + Math.random().toString(36).slice(2);
 
 	/**
+	 * Check if a given node should be cached.
+	 */
+	function shouldPrecacheNode(node, nodeID) {
+	  return node.nodeType === 1 && node.getAttribute(ATTR_NAME) === String(nodeID) || node.nodeType === 8 && node.nodeValue === ' react-text: ' + nodeID + ' ' || node.nodeType === 8 && node.nodeValue === ' react-empty: ' + nodeID + ' ';
+	}
+
+	/**
 	 * Drill down (through composites and empty components) until we get a host or
 	 * host text component.
 	 *
@@ -3371,7 +3378,7 @@
 	    }
 	    // We assume the child nodes are in the same order as the child instances.
 	    for (; childNode !== null; childNode = childNode.nextSibling) {
-	      if (childNode.nodeType === 1 && childNode.getAttribute(ATTR_NAME) === String(childID) || childNode.nodeType === 8 && childNode.nodeValue === ' react-text: ' + childID + ' ' || childNode.nodeType === 8 && childNode.nodeValue === ' react-empty: ' + childID + ' ') {
+	      if (shouldPrecacheNode(childNode, childID)) {
 	        precacheNode(childInst, childNode);
 	        continue outer;
 	      }
@@ -5493,7 +5500,7 @@
 
 /***/ },
 /* 47 */
-[635, 32],
+[634, 32],
 /* 48 */
 /***/ function(module, exports, __webpack_require__) {
 
@@ -9782,12 +9789,18 @@
 	    } else {
 	      var contentToUse = CONTENT_TYPES[typeof props.children] ? props.children : null;
 	      var childrenToUse = contentToUse != null ? null : props.children;
+	      // TODO: Validate that text is allowed as a child of this node
 	      if (contentToUse != null) {
-	        // TODO: Validate that text is allowed as a child of this node
-	        if (false) {
-	          setAndValidateContentChildDev.call(this, contentToUse);
+	        // Avoid setting textContent when the text is empty. In IE11 setting
+	        // textContent on a text area will cause the placeholder to not
+	        // show within the textarea until it has been focused and blurred again.
+	        // https://github.com/facebook/react/issues/6731#issuecomment-254874553
+	        if (contentToUse !== '') {
+	          if (false) {
+	            setAndValidateContentChildDev.call(this, contentToUse);
+	          }
+	          DOMLazyTree.queueText(lazyTree, contentToUse);
 	        }
-	        DOMLazyTree.queueText(lazyTree, contentToUse);
 	      } else if (childrenToUse != null) {
 	        var mountImages = this.mountChildren(childrenToUse, transaction, context);
 	        for (var i = 0; i < mountImages.length; i++) {
@@ -11703,7 +11716,17 @@
 	      }
 	    } else {
 	      if (props.value == null && props.defaultValue != null) {
-	        node.defaultValue = '' + props.defaultValue;
+	        // In Chrome, assigning defaultValue to certain input types triggers input validation.
+	        // For number inputs, the display value loses trailing decimal points. For email inputs,
+	        // Chrome raises "The specified value <x> is not a valid email address".
+	        //
+	        // Here we check to see if the defaultValue has actually changed, avoiding these problems
+	        // when the user is inputting text
+	        //
+	        // https://github.com/facebook/react/issues/7253
+	        if (node.defaultValue !== '' + props.defaultValue) {
+	          node.defaultValue = '' + props.defaultValue;
+	        }
 	      }
 	      if (props.checked == null && props.defaultChecked != null) {
 	        node.defaultChecked = !!props.defaultChecked;
@@ -12427,9 +12450,15 @@
 	    // This is in postMount because we need access to the DOM node, which is not
 	    // available until after the component has mounted.
 	    var node = ReactDOMComponentTree.getNodeFromInstance(inst);
+	    var textContent = node.textContent;
 
-	    // Warning: node.value may be the empty string at this point (IE11) if placeholder is set.
-	    node.value = node.textContent; // Detach value from defaultValue
+	    // Only set node.value if textContent is equal to the expected
+	    // initial value. In IE10/IE11 there is a bug where the placeholder attribute
+	    // will populate textContent as well.
+	    // https://developer.microsoft.com/microsoft-edge/platform/issues/101525/
+	    if (textContent === inst._wrapperState.initialValue) {
+	      node.value = textContent;
+	    }
 	  }
 	};
 
@@ -13414,7 +13443,17 @@
 	    instance = ReactEmptyComponent.create(instantiateReactComponent);
 	  } else if (typeof node === 'object') {
 	    var element = node;
-	    !(element && (typeof element.type === 'function' || typeof element.type === 'string')) ?  false ? invariant(false, 'Element type is invalid: expected a string (for built-in components) or a class/function (for composite components) but got: %s.%s', element.type == null ? element.type : typeof element.type, getDeclarationErrorAddendum(element._owner)) : _prodInvariant('130', element.type == null ? element.type : typeof element.type, getDeclarationErrorAddendum(element._owner)) : void 0;
+	    var type = element.type;
+	    if (typeof type !== 'function' && typeof type !== 'string') {
+	      var info = '';
+	      if (false) {
+	        if (type === undefined || typeof type === 'object' && type !== null && Object.keys(type).length === 0) {
+	          info += ' You likely forgot to export your component from the file ' + 'it\'s defined in.';
+	        }
+	      }
+	      info += getDeclarationErrorAddendum(element._owner);
+	       true ?  false ? invariant(false, 'Element type is invalid: expected a string (for built-in components) or a class/function (for composite components) but got: %s.%s', type == null ? type : typeof type, info) : _prodInvariant('130', type == null ? type : typeof type, info) : void 0;
+	    }
 
 	    // Special case string values
 	    if (typeof element.type === 'string') {
@@ -13703,7 +13742,7 @@
 	      // Since plain JS classes are defined without any special initialization
 	      // logic, we can not catch common errors early. Therefore, we have to
 	      // catch them here, at initialization time, instead.
-	      process.env.NODE_ENV !== 'production' ? warning(!inst.getInitialState || inst.getInitialState.isReactClassApproved, 'getInitialState was defined on %s, a plain JavaScript class. ' + 'This is only supported for classes created using React.createClass. ' + 'Did you mean to define a state property instead?', this.getName() || 'a component') : void 0;
+	      process.env.NODE_ENV !== 'production' ? warning(!inst.getInitialState || inst.getInitialState.isReactClassApproved || inst.state, 'getInitialState was defined on %s, a plain JavaScript class. ' + 'This is only supported for classes created using React.createClass. ' + 'Did you mean to define a state property instead?', this.getName() || 'a component') : void 0;
 	      process.env.NODE_ENV !== 'production' ? warning(!inst.getDefaultProps || inst.getDefaultProps.isReactClassApproved, 'getDefaultProps was defined on %s, a plain JavaScript class. ' + 'This is only supported for classes created using React.createClass. ' + 'Use a static property to define defaultProps instead.', this.getName() || 'a component') : void 0;
 	      process.env.NODE_ENV !== 'production' ? warning(!inst.propTypes, 'propTypes was defined as an instance property on %s. Use a static ' + 'property to define propTypes instead.', this.getName() || 'a component') : void 0;
 	      process.env.NODE_ENV !== 'production' ? warning(!inst.contextTypes, 'contextTypes was defined as an instance property on %s. Use a ' + 'static property to define contextTypes instead.', this.getName() || 'a component') : void 0;
@@ -14583,14 +14622,11 @@
 
 	'use strict';
 
-	var _prodInvariant = __webpack_require__(32),
-	    _assign = __webpack_require__(4);
+	var _prodInvariant = __webpack_require__(32);
 
 	var invariant = __webpack_require__(8);
 
 	var genericComponentClass = null;
-	// This registry keeps track of wrapper classes around host tags.
-	var tagToComponentClass = {};
 	var textComponentClass = null;
 
 	var ReactHostComponentInjection = {
@@ -14603,11 +14639,6 @@
 	  // rendered as props.
 	  injectTextComponentClass: function (componentClass) {
 	    textComponentClass = componentClass;
-	  },
-	  // This accepts a keyed object with classes as values. Each key represents a
-	  // tag. That particular tag will use this class instead of the generic one.
-	  injectComponentClasses: function (componentClasses) {
-	    _assign(tagToComponentClass, componentClasses);
 	  }
 	};
 
@@ -19783,7 +19814,7 @@
 
 	var _example_components2 = _interopRequireDefault(_example_components);
 
-	var _hero_example = __webpack_require__(634);
+	var _hero_example = __webpack_require__(633);
 
 	var _hero_example2 = _interopRequireDefault(_hero_example);
 
@@ -19917,125 +19948,125 @@
 
 	var _default2 = _interopRequireDefault(_default);
 
-	var _code_example_component = __webpack_require__(603);
+	var _code_example_component = __webpack_require__(602);
 
 	var _code_example_component2 = _interopRequireDefault(_code_example_component);
 
-	var _custom_date_format = __webpack_require__(604);
+	var _custom_date_format = __webpack_require__(603);
 
 	var _custom_date_format2 = _interopRequireDefault(_custom_date_format);
 
-	var _custom_class_name = __webpack_require__(605);
+	var _custom_class_name = __webpack_require__(604);
 
 	var _custom_class_name2 = _interopRequireDefault(_custom_class_name);
 
-	var _placeholder_text = __webpack_require__(606);
+	var _placeholder_text = __webpack_require__(605);
 
 	var _placeholder_text2 = _interopRequireDefault(_placeholder_text);
 
-	var _specific_date_range = __webpack_require__(607);
+	var _specific_date_range = __webpack_require__(606);
 
 	var _specific_date_range2 = _interopRequireDefault(_specific_date_range);
 
-	var _locale = __webpack_require__(608);
+	var _locale = __webpack_require__(607);
 
 	var _locale2 = _interopRequireDefault(_locale);
 
-	var _exclude_dates = __webpack_require__(609);
+	var _exclude_dates = __webpack_require__(608);
 
 	var _exclude_dates2 = _interopRequireDefault(_exclude_dates);
 
-	var _highlight_dates = __webpack_require__(610);
+	var _highlight_dates = __webpack_require__(609);
 
 	var _highlight_dates2 = _interopRequireDefault(_highlight_dates);
 
-	var _include_dates = __webpack_require__(611);
+	var _include_dates = __webpack_require__(610);
 
 	var _include_dates2 = _interopRequireDefault(_include_dates);
 
-	var _filter_dates = __webpack_require__(612);
+	var _filter_dates = __webpack_require__(611);
 
 	var _filter_dates2 = _interopRequireDefault(_filter_dates);
 
-	var _disabled = __webpack_require__(613);
+	var _disabled = __webpack_require__(612);
 
 	var _disabled2 = _interopRequireDefault(_disabled);
 
-	var _clear_input = __webpack_require__(614);
+	var _clear_input = __webpack_require__(613);
 
 	var _clear_input2 = _interopRequireDefault(_clear_input);
 
-	var _on_blur_callbacks = __webpack_require__(615);
+	var _on_blur_callbacks = __webpack_require__(614);
 
 	var _on_blur_callbacks2 = _interopRequireDefault(_on_blur_callbacks);
 
-	var _placement = __webpack_require__(616);
+	var _placement = __webpack_require__(615);
 
 	var _placement2 = _interopRequireDefault(_placement);
 
-	var _date_range = __webpack_require__(617);
+	var _date_range = __webpack_require__(616);
 
 	var _date_range2 = _interopRequireDefault(_date_range);
 
-	var _tab_index = __webpack_require__(618);
+	var _tab_index = __webpack_require__(617);
 
 	var _tab_index2 = _interopRequireDefault(_tab_index);
 
-	var _year_dropdown = __webpack_require__(619);
+	var _year_dropdown = __webpack_require__(618);
 
 	var _year_dropdown2 = _interopRequireDefault(_year_dropdown);
 
-	var _month_dropdown = __webpack_require__(620);
+	var _month_dropdown = __webpack_require__(619);
 
 	var _month_dropdown2 = _interopRequireDefault(_month_dropdown);
 
-	var _year_select_dropdown = __webpack_require__(621);
+	var _year_select_dropdown = __webpack_require__(620);
 
 	var _year_select_dropdown2 = _interopRequireDefault(_year_select_dropdown);
 
-	var _today = __webpack_require__(622);
+	var _today = __webpack_require__(621);
 
 	var _today2 = _interopRequireDefault(_today);
 
-	var _timezone_date = __webpack_require__(623);
+	var _timezone_date = __webpack_require__(622);
 
 	var _timezone_date2 = _interopRequireDefault(_timezone_date);
 
-	var _inline = __webpack_require__(624);
+	var _inline = __webpack_require__(623);
 
 	var _inline2 = _interopRequireDefault(_inline);
 
-	var _open_to_date = __webpack_require__(625);
+	var _open_to_date = __webpack_require__(624);
 
 	var _open_to_date2 = _interopRequireDefault(_open_to_date);
 
-	var _fixed_calendar = __webpack_require__(626);
+	var _fixed_calendar = __webpack_require__(625);
 
 	var _fixed_calendar2 = _interopRequireDefault(_fixed_calendar);
 
-	var _week_numbers = __webpack_require__(627);
+	var _week_numbers = __webpack_require__(626);
 
 	var _week_numbers2 = _interopRequireDefault(_week_numbers);
 
-	var _custom_input = __webpack_require__(628);
+	var _custom_input = __webpack_require__(627);
 
 	var _custom_input2 = _interopRequireDefault(_custom_input);
 
-	var _multi_month = __webpack_require__(629);
+	var _multi_month = __webpack_require__(628);
 
 	var _multi_month2 = _interopRequireDefault(_multi_month);
 
-	var _multi_month_drp = __webpack_require__(630);
+	var _multi_month_drp = __webpack_require__(629);
 
 	var _multi_month_drp2 = _interopRequireDefault(_multi_month_drp);
 
-	var _children = __webpack_require__(631);
+	var _children = __webpack_require__(630);
 
 	var _children2 = _interopRequireDefault(_children);
 
-	__webpack_require__(632);
+	__webpack_require__(631);
 
-	__webpack_require__(633);
+	__webpack_require__(632);
 
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -36729,11 +36760,7 @@
 
 	'use strict';
 
-	var _date_input = __webpack_require__(342);
-
-	var _date_input2 = _interopRequireDefault(_date_input);
-
-	var _calendar = __webpack_require__(455);
+	var _calendar = __webpack_require__(342);
 
 	var _calendar2 = _interopRequireDefault(_calendar);
 
@@ -36741,25 +36768,25 @@
 
 	var _react2 = _interopRequireDefault(_react);
 
-	var _defer = __webpack_require__(591);
+	var _defer = __webpack_require__(590);
 
 	var _defer2 = _interopRequireDefault(_defer);
 
-	var _tether_component = __webpack_require__(601);
+	var _tether_component = __webpack_require__(600);
 
 	var _tether_component2 = _interopRequireDefault(_tether_component);
 
-	var _classnames2 = __webpack_require__(579);
+	var _classnames2 = __webpack_require__(577);
 
 	var _classnames3 = _interopRequireDefault(_classnames2);
 
-	var _date_utils = __webpack_require__(454);
+	var _date_utils = __webpack_require__(588);
 
 	var _moment = __webpack_require__(343);
 
 	var _moment2 = _interopRequireDefault(_moment);
 
-	var _reactOnclickoutside = __webpack_require__(580);
+	var _reactOnclickoutside = __webpack_require__(578);
 
 	var _reactOnclickoutside2 = _interopRequireDefault(_reactOnclickoutside);
 
@@ -36784,7 +36811,8 @@
 	    className: _react2.default.PropTypes.string,
 	    containerClassName: _react2.default.PropTypes.string,
 	    customInput: _react2.default.PropTypes.element,
-	    dateFormat: _react2.default.PropTypes.oneOfType([_react2.default.PropTypes.string, _react2.default.PropTypes.array]),
+	    dateFormat: _react2.default.PropTypes.oneOfType([// eslint-disable-line react/no-unused-prop-types
+	    _react2.default.PropTypes.string, _react2.default.PropTypes.array]),
 	    dateFormatCalendar: _react2.default.PropTypes.string,
 	    disabled: _react2.default.PropTypes.bool,
 	    dropdownMode: _react2.default.PropTypes.oneOf(['scroll', 'select']).isRequired,
@@ -36833,6 +36861,7 @@
 
 	  getDefaultProps: function getDefaultProps() {
 	    return {
+	      dateFormat: 'L',
 	      dateFormatCalendar: 'MMMM YYYY',
 	      onChange: function onChange() {},
 
@@ -36855,6 +36884,7 @@
 	  },
 	  getInitialState: function getInitialState() {
 	    return {
+	      inputValue: (0, _date_utils.safeDateFormat)(this.props.selected, this.props),
 	      open: false,
 	      preventFocus: false
 	    };
@@ -36896,6 +36926,10 @@
 	  handleCalendarClickOutside: function handleCalendarClickOutside(event) {
 	    this.setOpen(false);
 	  },
+	  handleChange: function handleChange(event) {
+	    this.setState({ inputValue: event.target.value });
+	    var date = (0, _date_utils.parseDate)(event.target.value, this.props);(date || !event.target.value) && this.setSelected(date, event, true);
+	  },
 	  handleSelect: function handleSelect(date, event) {
 	    var _this2 = this;
 
@@ -36909,7 +36943,7 @@
 	    this.setSelected(date, event);
 	    this.setOpen(false);
 	  },
-	  setSelected: function setSelected(date, event) {
+	  setSelected: function setSelected(date, event, keepInput) {
 	    var changedDate = date;
 
 	    if (!(0, _date_utils.isSameDay)(this.props.selected, changedDate)) {
@@ -36920,8 +36954,10 @@
 	          second: this.props.selected.second()
 	        });
 	      }
-
 	      this.props.onChange(changedDate, event);
+	    }
+	    if (!keepInput) {
+	      this.setState({ inputValue: (0, _date_utils.safeDateFormat)(changedDate, this.props) });
 	    }
 	  },
 	  onInputClick: function onInputClick() {
@@ -36936,6 +36972,7 @@
 	      this.setOpen(false);
 	    } else if (event.key === 'Tab') {
 	      this.setOpen(false);
+	      this.setSelected(this.props.selected, event, false);
 	    } else if (event.key === 'ArrowLeft') {
 	      event.preventDefault();
 	      this.setSelected(copy.subtract(1, 'days'));
@@ -37009,24 +37046,20 @@
 	  },
 	  renderDateInput: function renderDateInput() {
 	    var className = (0, _classnames3.default)(this.props.className, _defineProperty({}, outsideClickIgnoreClass, this.state.open));
-	    return _react2.default.createElement(_date_input2.default, {
+
+	    var customInput = this.props.customInput || _react2.default.createElement('input', { type: 'text' });
+
+	    return _react2.default.cloneElement(customInput, {
 	      ref: 'input',
+	      value: this.state.inputValue,
+	      onBlur: this.handleBlur,
+	      onChange: this.handleChange,
+	      onClick: this.onInputClick,
+	      onFocus: this.handleFocus,
+	      onKeyDown: this.onInputKeyDown,
 	      id: this.props.id,
 	      name: this.props.name,
 	      autoFocus: this.props.autoFocus,
-	      date: this.props.selected,
-	      locale: this.props.locale,
-	      minDate: this.props.minDate,
-	      maxDate: this.props.maxDate,
-	      excludeDates: this.props.excludeDates,
-	      includeDates: this.props.includeDates,
-	      filterDate: this.props.filterDate,
-	      dateFormat: this.props.dateFormat,
-	      onFocus: this.handleFocus,
-	      onBlur: this.handleBlur,
-	      onClick: this.onInputClick,
-	      onKeyDown: this.onInputKeyDown,
-	      onChangeDate: this.setSelected,
 	      placeholder: this.props.placeholderText,
 	      disabled: this.props.disabled,
 	      autoComplete: this.props.autoComplete,
@@ -37034,8 +37067,8 @@
 	      title: this.props.title,
 	      readOnly: this.props.readOnly,
 	      required: this.props.required,
-	      tabIndex: this.props.tabIndex,
-	      customInput: this.props.customInput });
+	      tabIndex: this.props.tabIndex
+	    });
 	  },
 	  renderClearButton: function renderClearButton() {
 	    if (this.props.isClearable && this.props.selected != null) {
@@ -37080,125 +37113,352 @@
 
 	'use strict';
 
-	var _extends = Object.assign || function (target) { for (var i = 1; i < arguments.length; i++) { var source = arguments[i]; for (var key in source) { if (Object.prototype.hasOwnProperty.call(source, key)) { target[key] = source[key]; } } } return target; };
-
 	var _moment = __webpack_require__(343);
 
 	var _moment2 = _interopRequireDefault(_moment);
+
+	var _find = __webpack_require__(454);
+
+	var _find2 = _interopRequireDefault(_find);
+
+	var _year_dropdown = __webpack_require__(575);
+
+	var _year_dropdown2 = _interopRequireDefault(_year_dropdown);
+
+	var _month_dropdown = __webpack_require__(579);
+
+	var _month_dropdown2 = _interopRequireDefault(_month_dropdown);
+
+	var _month = __webpack_require__(585);
+
+	var _month2 = _interopRequireDefault(_month);
 
 	var _react = __webpack_require__(2);
 
 	var _react2 = _interopRequireDefault(_react);
 
-	var _date_utils = __webpack_require__(454);
+	var _date_utils = __webpack_require__(588);
 
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-	function _objectWithoutProperties(obj, keys) { var target = {}; for (var i in obj) { if (keys.indexOf(i) >= 0) continue; if (!Object.prototype.hasOwnProperty.call(obj, i)) continue; target[i] = obj[i]; } return target; }
+	var DROPDOWN_FOCUS_CLASSNAMES = ['react-datepicker__year-select', 'react-datepicker__month-select'];
 
-	var DateInput = _react2.default.createClass({
-	  displayName: 'DateInput',
+	var isDropdownSelect = function isDropdownSelect() {
+	  var element = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
+
+	  var classNames = (element.className || '').split(/\s+/);
+	  return !!(0, _find2.default)(DROPDOWN_FOCUS_CLASSNAMES, function (testClassname) {
+	    return classNames.indexOf(testClassname) >= 0;
+	  });
+	};
+
+	var Calendar = _react2.default.createClass({
+	  displayName: 'Calendar',
 
 	  propTypes: {
-	    customInput: _react2.default.PropTypes.element,
-	    date: _react2.default.PropTypes.object,
-	    dateFormat: _react2.default.PropTypes.oneOfType([_react2.default.PropTypes.string, _react2.default.PropTypes.array]),
-	    disabled: _react2.default.PropTypes.bool,
+	    children: _react2.default.PropTypes.node,
+	    dateFormat: _react2.default.PropTypes.oneOfType([_react2.default.PropTypes.string, _react2.default.PropTypes.array]).isRequired,
+	    dropdownMode: _react2.default.PropTypes.oneOf(['scroll', 'select']).isRequired,
+	    endDate: _react2.default.PropTypes.object,
 	    excludeDates: _react2.default.PropTypes.array,
 	    filterDate: _react2.default.PropTypes.func,
+	    fixedHeight: _react2.default.PropTypes.bool,
+	    highlightDates: _react2.default.PropTypes.array,
 	    includeDates: _react2.default.PropTypes.array,
 	    locale: _react2.default.PropTypes.string,
 	    maxDate: _react2.default.PropTypes.object,
 	    minDate: _react2.default.PropTypes.object,
-	    onBlur: _react2.default.PropTypes.func,
-	    onChange: _react2.default.PropTypes.func,
-	    onChangeDate: _react2.default.PropTypes.func
+	    monthsShown: _react2.default.PropTypes.number,
+	    onClickOutside: _react2.default.PropTypes.func.isRequired,
+	    onMonthChange: _react2.default.PropTypes.func,
+	    forceShowMonthNavigation: _react2.default.PropTypes.bool,
+	    onDropdownFocus: _react2.default.PropTypes.func,
+	    onSelect: _react2.default.PropTypes.func.isRequired,
+	    openToDate: _react2.default.PropTypes.object,
+	    peekNextMonth: _react2.default.PropTypes.bool,
+	    scrollableYearDropdown: _react2.default.PropTypes.bool,
+	    selected: _react2.default.PropTypes.object,
+	    selectsEnd: _react2.default.PropTypes.bool,
+	    selectsStart: _react2.default.PropTypes.bool,
+	    showMonthDropdown: _react2.default.PropTypes.bool,
+	    showWeekNumbers: _react2.default.PropTypes.bool,
+	    showYearDropdown: _react2.default.PropTypes.bool,
+	    startDate: _react2.default.PropTypes.object,
+	    todayButton: _react2.default.PropTypes.string,
+	    utcOffset: _react2.default.PropTypes.number
+	  },
+
+	  defaultProps: {
+	    onDropdownFocus: function onDropdownFocus() {}
 	  },
 
 	  getDefaultProps: function getDefaultProps() {
 	    return {
-	      dateFormat: 'L'
+	      utcOffset: _moment2.default.utc().utcOffset(),
+	      monthsShown: 1,
+	      forceShowMonthNavigation: false
 	    };
 	  },
 	  getInitialState: function getInitialState() {
 	    return {
-	      value: this.safeDateFormat(this.props)
+	      date: this.localizeMoment(this.getDateInView()),
+	      selectingDate: null
 	    };
 	  },
-	  componentWillReceiveProps: function componentWillReceiveProps(newProps) {
-	    if (!(0, _date_utils.isSameDay)(newProps.date, this.props.date) || newProps.locale !== this.props.locale || newProps.dateFormat !== this.props.dateFormat) {
+	  componentWillReceiveProps: function componentWillReceiveProps(nextProps) {
+	    if (nextProps.selected && !(0, _date_utils.isSameDay)(nextProps.selected, this.props.selected)) {
 	      this.setState({
-	        value: this.safeDateFormat(newProps)
+	        date: this.localizeMoment(nextProps.selected)
+	      });
+	    } else if (nextProps.openToDate && !(0, _date_utils.isSameDay)(nextProps.openToDate, this.props.openToDate)) {
+	      this.setState({
+	        date: this.localizeMoment(nextProps.openToDate)
 	      });
 	    }
 	  },
-	  handleChange: function handleChange(event) {
-	    if (this.props.onChange) {
-	      this.props.onChange(event);
-	    }
-	    if (!event.defaultPrevented) {
-	      this.handleChangeDate(event.target.value);
+	  handleClickOutside: function handleClickOutside(event) {
+	    this.props.onClickOutside(event);
+	  },
+	  handleDropdownFocus: function handleDropdownFocus(event) {
+	    if (isDropdownSelect(event.target)) {
+	      this.props.onDropdownFocus();
 	    }
 	  },
-	  handleChangeDate: function handleChangeDate(value) {
-	    if (this.props.onChangeDate) {
-	      var date = (0, _moment2.default)(value, this.props.dateFormat, this.props.locale || _moment2.default.locale(), true);
-	      if (date.isValid() && !(0, _date_utils.isDayDisabled)(date, this.props)) {
-	        this.props.onChangeDate(date);
-	      } else if (value === '') {
-	        this.props.onChangeDate(null);
-	      }
+	  getDateInView: function getDateInView() {
+	    var _props = this.props,
+	        selected = _props.selected,
+	        openToDate = _props.openToDate,
+	        utcOffset = _props.utcOffset;
+
+	    var minDate = (0, _date_utils.getEffectiveMinDate)(this.props);
+	    var maxDate = (0, _date_utils.getEffectiveMaxDate)(this.props);
+	    var current = _moment2.default.utc().utcOffset(utcOffset);
+	    if (selected) {
+	      return selected;
+	    } else if (minDate && maxDate && openToDate && openToDate.isBetween(minDate, maxDate)) {
+	      return openToDate;
+	    } else if (minDate && openToDate && openToDate.isAfter(minDate)) {
+	      return openToDate;
+	    } else if (minDate && minDate.isAfter(current)) {
+	      return minDate;
+	    } else if (maxDate && openToDate && openToDate.isBefore(maxDate)) {
+	      return openToDate;
+	    } else if (maxDate && maxDate.isBefore(current)) {
+	      return maxDate;
+	    } else if (openToDate) {
+	      return openToDate;
+	    } else {
+	      return current;
 	    }
-	    this.setState({ value: value });
 	  },
-	  safeDateFormat: function safeDateFormat(props) {
-	    return props.date && props.date.clone().locale(props.locale || _moment2.default.locale()).format(Array.isArray(props.dateFormat) ? props.dateFormat[0] : props.dateFormat) || '';
+	  localizeMoment: function localizeMoment(date) {
+	    return date.clone().locale(this.props.locale || _moment2.default.locale());
 	  },
-	  handleBlur: function handleBlur(event) {
+	  increaseMonth: function increaseMonth() {
+	    var _this = this;
+
 	    this.setState({
-	      value: this.safeDateFormat(this.props)
+	      date: this.state.date.clone().add(1, 'month')
+	    }, function () {
+	      return _this.handleMonthChange(_this.state.date);
 	    });
-	    if (this.props.onBlur) {
-	      this.props.onBlur(event);
+	  },
+	  decreaseMonth: function decreaseMonth() {
+	    var _this2 = this;
+
+	    this.setState({
+	      date: this.state.date.clone().subtract(1, 'month')
+	    }, function () {
+	      return _this2.handleMonthChange(_this2.state.date);
+	    });
+	  },
+	  handleDayClick: function handleDayClick(day, event) {
+	    this.props.onSelect(day, event);
+	  },
+	  handleDayMouseEnter: function handleDayMouseEnter(day) {
+	    this.setState({ selectingDate: day });
+	  },
+	  handleMonthMouseLeave: function handleMonthMouseLeave() {
+	    this.setState({ selectingDate: null });
+	  },
+	  handleMonthChange: function handleMonthChange(date) {
+	    if (this.props.onMonthChange) {
+	      this.props.onMonthChange(date);
 	    }
 	  },
-	  focus: function focus() {
-	    this.refs.input.focus();
+	  changeYear: function changeYear(year) {
+	    this.setState({
+	      date: this.state.date.clone().set('year', year)
+	    });
+	  },
+	  changeMonth: function changeMonth(month) {
+	    var _this3 = this;
+
+	    this.setState({
+	      date: this.state.date.clone().set('month', month)
+	    }, function () {
+	      return _this3.handleMonthChange(_this3.state.date);
+	    });
+	  },
+	  header: function header() {
+	    var date = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : this.state.date;
+
+	    var startOfWeek = date.clone().startOf('week');
+	    var dayNames = [];
+	    if (this.props.showWeekNumbers) {
+	      dayNames.push(_react2.default.createElement(
+	        'div',
+	        { key: 'W', className: 'react-datepicker__day-name' },
+	        '#'
+	      ));
+	    }
+	    return dayNames.concat([0, 1, 2, 3, 4, 5, 6].map(function (offset) {
+	      var day = startOfWeek.clone().add(offset, 'days');
+	      return _react2.default.createElement(
+	        'div',
+	        { key: offset, className: 'react-datepicker__day-name' },
+	        day.localeData().weekdaysMin(day)
+	      );
+	    }));
+	  },
+	  renderPreviousMonthButton: function renderPreviousMonthButton() {
+	    if (!this.props.forceShowMonthNavigation && (0, _date_utils.allDaysDisabledBefore)(this.state.date, 'month', this.props)) {
+	      return;
+	    }
+	    return _react2.default.createElement('a', {
+	      className: 'react-datepicker__navigation react-datepicker__navigation--previous',
+	      onClick: this.decreaseMonth });
+	  },
+	  renderNextMonthButton: function renderNextMonthButton() {
+	    if (!this.props.forceShowMonthNavigation && (0, _date_utils.allDaysDisabledAfter)(this.state.date, 'month', this.props)) {
+	      return;
+	    }
+	    return _react2.default.createElement('a', {
+	      className: 'react-datepicker__navigation react-datepicker__navigation--next',
+	      onClick: this.increaseMonth });
+	  },
+	  renderCurrentMonth: function renderCurrentMonth() {
+	    var date = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : this.state.date;
+
+	    var classes = ['react-datepicker__current-month'];
+	    if (this.props.showYearDropdown) {
+	      classes.push('react-datepicker__current-month--hasYearDropdown');
+	    }
+	    if (this.props.showMonthDropdown) {
+	      classes.push('react-datepicker__current-month--hasMonthDropdown');
+	    }
+	    return _react2.default.createElement(
+	      'div',
+	      { className: classes.join(' ') },
+	      date.format(this.props.dateFormat)
+	    );
+	  },
+	  renderYearDropdown: function renderYearDropdown() {
+	    var overrideHide = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : false;
+
+	    if (!this.props.showYearDropdown || overrideHide) {
+	      return;
+	    }
+	    return _react2.default.createElement(_year_dropdown2.default, {
+	      dropdownMode: this.props.dropdownMode,
+	      onChange: this.changeYear,
+	      minDate: this.props.minDate,
+	      maxDate: this.props.maxDate,
+	      year: this.state.date.year(),
+	      scrollableYearDropdown: this.props.scrollableYearDropdown });
+	  },
+	  renderMonthDropdown: function renderMonthDropdown() {
+	    var overrideHide = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : false;
+
+	    if (!this.props.showMonthDropdown) {
+	      return;
+	    }
+	    return _react2.default.createElement(_month_dropdown2.default, {
+	      dropdownMode: this.props.dropdownMode,
+	      locale: this.props.locale,
+	      onChange: this.changeMonth,
+	      month: this.state.date.month() });
+	  },
+	  renderTodayButton: function renderTodayButton() {
+	    var _this4 = this;
+
+	    if (!this.props.todayButton) {
+	      return;
+	    }
+	    return _react2.default.createElement(
+	      'div',
+	      { className: 'react-datepicker__today-button', onClick: function onClick(event) {
+	          return _this4.props.onSelect(_moment2.default.utc().utcOffset(_this4.props.utcOffset).startOf('date'), event);
+	        } },
+	      this.props.todayButton
+	    );
+	  },
+	  renderMonths: function renderMonths() {
+	    var monthList = [];
+	    for (var i = 0; i < this.props.monthsShown; ++i) {
+	      var monthDate = this.state.date.clone().add(i, 'M');
+	      var monthKey = 'month-' + i;
+	      monthList.push(_react2.default.createElement(
+	        'div',
+	        { key: monthKey, className: 'react-datepicker__month-container' },
+	        _react2.default.createElement(
+	          'div',
+	          { className: 'react-datepicker__header' },
+	          this.renderCurrentMonth(monthDate),
+	          _react2.default.createElement(
+	            'div',
+	            {
+	              className: 'react-datepicker__header__dropdown react-datepicker__header__dropdown--' + this.props.dropdownMode,
+	              onFocus: this.handleDropdownFocus },
+	            this.renderMonthDropdown(i !== 0),
+	            this.renderYearDropdown(i !== 0)
+	          ),
+	          _react2.default.createElement(
+	            'div',
+	            { className: 'react-datepicker__day-names' },
+	            this.header(monthDate)
+	          )
+	        ),
+	        _react2.default.createElement(_month2.default, {
+	          day: monthDate,
+	          onDayClick: this.handleDayClick,
+	          onDayMouseEnter: this.handleDayMouseEnter,
+	          onMouseLeave: this.handleMonthMouseLeave,
+	          minDate: this.props.minDate,
+	          maxDate: this.props.maxDate,
+	          excludeDates: this.props.excludeDates,
+	          highlightDates: this.props.highlightDates,
+	          selectingDate: this.state.selectingDate,
+	          includeDates: this.props.includeDates,
+	          fixedHeight: this.props.fixedHeight,
+	          filterDate: this.props.filterDate,
+	          selected: this.props.selected,
+	          selectsStart: this.props.selectsStart,
+	          selectsEnd: this.props.selectsEnd,
+	          showWeekNumbers: this.props.showWeekNumbers,
+	          startDate: this.props.startDate,
+	          endDate: this.props.endDate,
+	          peekNextMonth: this.props.peekNextMonth,
+	          utcOffset: this.props.utcOffset })
+	      ));
+	    }
+	    return monthList;
 	  },
 	  render: function render() {
-	    var _props = this.props,
-	        customInput = _props.customInput,
-	        date = _props.date,
-	        locale = _props.locale,
-	        minDate = _props.minDate,
-	        maxDate = _props.maxDate,
-	        excludeDates = _props.excludeDates,
-	        includeDates = _props.includeDates,
-	        filterDate = _props.filterDate,
-	        dateFormat = _props.dateFormat,
-	        onChangeDate = _props.onChangeDate,
-	        rest = _objectWithoutProperties(_props, ['customInput', 'date', 'locale', 'minDate', 'maxDate', 'excludeDates', 'includeDates', 'filterDate', 'dateFormat', 'onChangeDate']); // eslint-disable-line no-unused-vars
-
-	    if (customInput) {
-	      return _react2.default.cloneElement(customInput, _extends({}, rest, {
-	        ref: 'input',
-	        value: this.state.value,
-	        onBlur: this.handleBlur,
-	        onChange: this.handleChange
-	      }));
-	    }
-
-	    return _react2.default.createElement('input', _extends({
-	      ref: 'input',
-	      type: 'text'
-	    }, rest, {
-	      value: this.state.value,
-	      onBlur: this.handleBlur,
-	      onChange: this.handleChange }));
+	    return _react2.default.createElement(
+	      'div',
+	      { className: 'react-datepicker' },
+	      _react2.default.createElement('div', { className: 'react-datepicker__triangle' }),
+	      this.renderPreviousMonthButton(),
+	      this.renderNextMonthButton(),
+	      this.renderMonths(),
+	      this.renderTodayButton(),
+	      this.props.children
+	    );
 	  }
 	});
 
-	module.exports = DateInput;
+	module.exports = Calendar;
 
 /***/ },
 /* 343 */
@@ -52104,465 +52364,8 @@
 /* 454 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-
-	Object.defineProperty(exports, "__esModule", {
-	  value: true
-	});
-	exports.isSameDay = isSameDay;
-	exports.isDayInRange = isDayInRange;
-	exports.isDayDisabled = isDayDisabled;
-	exports.allDaysDisabledBefore = allDaysDisabledBefore;
-	exports.allDaysDisabledAfter = allDaysDisabledAfter;
-	exports.getEffectiveMinDate = getEffectiveMinDate;
-	exports.getEffectiveMaxDate = getEffectiveMaxDate;
-
-	var _moment = __webpack_require__(343);
-
-	var _moment2 = _interopRequireDefault(_moment);
-
-	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-	function isSameDay(moment1, moment2) {
-	  if (moment1 && moment2) {
-	    return moment1.isSame(moment2, 'day');
-	  } else {
-	    return !moment1 && !moment2;
-	  }
-	}
-
-	function isDayInRange(day, startDate, endDate) {
-	  var before = startDate.clone().startOf('day').subtract(1, 'seconds');
-	  var after = endDate.clone().startOf('day').add(1, 'seconds');
-	  return day.clone().startOf('day').isBetween(before, after);
-	}
-
-	function isDayDisabled(day) {
-	  var _ref = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {},
-	      minDate = _ref.minDate,
-	      maxDate = _ref.maxDate,
-	      excludeDates = _ref.excludeDates,
-	      includeDates = _ref.includeDates,
-	      filterDate = _ref.filterDate;
-
-	  return minDate && day.isBefore(minDate, 'day') || maxDate && day.isAfter(maxDate, 'day') || excludeDates && excludeDates.some(function (excludeDate) {
-	    return isSameDay(day, excludeDate);
-	  }) || includeDates && !includeDates.some(function (includeDate) {
-	    return isSameDay(day, includeDate);
-	  }) || filterDate && !filterDate(day.clone()) || false;
-	}
-
-	function allDaysDisabledBefore(day, unit) {
-	  var _ref2 = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {},
-	      minDate = _ref2.minDate,
-	      includeDates = _ref2.includeDates;
-
-	  var dateBefore = day.clone().subtract(1, unit);
-	  return minDate && dateBefore.isBefore(minDate, unit) || includeDates && includeDates.every(function (includeDate) {
-	    return dateBefore.isBefore(includeDate, unit);
-	  }) || false;
-	}
-
-	function allDaysDisabledAfter(day, unit) {
-	  var _ref3 = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {},
-	      maxDate = _ref3.maxDate,
-	      includeDates = _ref3.includeDates;
-
-	  var dateAfter = day.clone().add(1, unit);
-	  return maxDate && dateAfter.isAfter(maxDate, unit) || includeDates && includeDates.every(function (includeDate) {
-	    return dateAfter.isAfter(includeDate, unit);
-	  }) || false;
-	}
-
-	function getEffectiveMinDate(_ref4) {
-	  var minDate = _ref4.minDate,
-	      includeDates = _ref4.includeDates;
-
-	  if (includeDates && minDate) {
-	    return _moment2.default.min(includeDates.filter(function (includeDate) {
-	      return minDate.isSameOrBefore(includeDate, 'day');
-	    }));
-	  } else if (includeDates) {
-	    return _moment2.default.min(includeDates);
-	  } else {
-	    return minDate;
-	  }
-	}
-
-	function getEffectiveMaxDate(_ref5) {
-	  var maxDate = _ref5.maxDate,
-	      includeDates = _ref5.includeDates;
-
-	  if (includeDates && maxDate) {
-	    return _moment2.default.max(includeDates.filter(function (includeDate) {
-	      return maxDate.isSameOrAfter(includeDate, 'day');
-	    }));
-	  } else if (includeDates) {
-	    return _moment2.default.max(includeDates);
-	  } else {
-	    return maxDate;
-	  }
-	}
-
-/***/ },
-/* 455 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-
-	var _moment = __webpack_require__(343);
-
-	var _moment2 = _interopRequireDefault(_moment);
-
-	var _find = __webpack_require__(456);
-
-	var _find2 = _interopRequireDefault(_find);
-
-	var _year_dropdown = __webpack_require__(577);
-
-	var _year_dropdown2 = _interopRequireDefault(_year_dropdown);
-
-	var _month_dropdown = __webpack_require__(581);
-
-	var _month_dropdown2 = _interopRequireDefault(_month_dropdown);
-
-	var _month = __webpack_require__(587);
-
-	var _month2 = _interopRequireDefault(_month);
-
-	var _react = __webpack_require__(2);
-
-	var _react2 = _interopRequireDefault(_react);
-
-	var _date_utils = __webpack_require__(454);
-
-	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
-
-	var DROPDOWN_FOCUS_CLASSNAMES = ['react-datepicker__year-select', 'react-datepicker__month-select'];
-
-	var isDropdownSelect = function isDropdownSelect() {
-	  var element = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-
-	  var classNames = (element.className || '').split(/\s+/);
-	  return !!(0, _find2.default)(DROPDOWN_FOCUS_CLASSNAMES, function (testClassname) {
-	    return classNames.indexOf(testClassname) >= 0;
-	  });
-	};
-
-	var Calendar = _react2.default.createClass({
-	  displayName: 'Calendar',
-
-	  propTypes: {
-	    children: _react2.default.PropTypes.node,
-	    dateFormat: _react2.default.PropTypes.oneOfType([_react2.default.PropTypes.string, _react2.default.PropTypes.array]).isRequired,
-	    dropdownMode: _react2.default.PropTypes.oneOf(['scroll', 'select']).isRequired,
-	    endDate: _react2.default.PropTypes.object,
-	    excludeDates: _react2.default.PropTypes.array,
-	    filterDate: _react2.default.PropTypes.func,
-	    fixedHeight: _react2.default.PropTypes.bool,
-	    highlightDates: _react2.default.PropTypes.array,
-	    includeDates: _react2.default.PropTypes.array,
-	    locale: _react2.default.PropTypes.string,
-	    maxDate: _react2.default.PropTypes.object,
-	    minDate: _react2.default.PropTypes.object,
-	    monthsShown: _react2.default.PropTypes.number,
-	    onClickOutside: _react2.default.PropTypes.func.isRequired,
-	    onMonthChange: _react2.default.PropTypes.func,
-	    forceShowMonthNavigation: _react2.default.PropTypes.bool,
-	    onDropdownFocus: _react2.default.PropTypes.func,
-	    onSelect: _react2.default.PropTypes.func.isRequired,
-	    openToDate: _react2.default.PropTypes.object,
-	    peekNextMonth: _react2.default.PropTypes.bool,
-	    scrollableYearDropdown: _react2.default.PropTypes.bool,
-	    selected: _react2.default.PropTypes.object,
-	    selectsEnd: _react2.default.PropTypes.bool,
-	    selectsStart: _react2.default.PropTypes.bool,
-	    showMonthDropdown: _react2.default.PropTypes.bool,
-	    showWeekNumbers: _react2.default.PropTypes.bool,
-	    showYearDropdown: _react2.default.PropTypes.bool,
-	    startDate: _react2.default.PropTypes.object,
-	    todayButton: _react2.default.PropTypes.string,
-	    utcOffset: _react2.default.PropTypes.number
-	  },
-
-	  defaultProps: {
-	    onDropdownFocus: function onDropdownFocus() {}
-	  },
-
-	  getDefaultProps: function getDefaultProps() {
-	    return {
-	      utcOffset: _moment2.default.utc().utcOffset(),
-	      monthsShown: 1,
-	      forceShowMonthNavigation: false
-	    };
-	  },
-	  getInitialState: function getInitialState() {
-	    return {
-	      date: this.localizeMoment(this.getDateInView()),
-	      selectingDate: null
-	    };
-	  },
-	  componentWillReceiveProps: function componentWillReceiveProps(nextProps) {
-	    if (nextProps.selected && !(0, _date_utils.isSameDay)(nextProps.selected, this.props.selected)) {
-	      this.setState({
-	        date: this.localizeMoment(nextProps.selected)
-	      });
-	    } else if (nextProps.openToDate && !(0, _date_utils.isSameDay)(nextProps.openToDate, this.props.openToDate)) {
-	      this.setState({
-	        date: this.localizeMoment(nextProps.openToDate)
-	      });
-	    }
-	  },
-	  handleClickOutside: function handleClickOutside(event) {
-	    this.props.onClickOutside(event);
-	  },
-	  handleDropdownFocus: function handleDropdownFocus(event) {
-	    if (isDropdownSelect(event.target)) {
-	      this.props.onDropdownFocus();
-	    }
-	  },
-	  getDateInView: function getDateInView() {
-	    var _props = this.props,
-	        selected = _props.selected,
-	        openToDate = _props.openToDate,
-	        utcOffset = _props.utcOffset;
-
-	    var minDate = (0, _date_utils.getEffectiveMinDate)(this.props);
-	    var maxDate = (0, _date_utils.getEffectiveMaxDate)(this.props);
-	    var current = _moment2.default.utc().utcOffset(utcOffset);
-	    if (selected) {
-	      return selected;
-	    } else if (minDate && maxDate && openToDate && openToDate.isBetween(minDate, maxDate)) {
-	      return openToDate;
-	    } else if (minDate && openToDate && openToDate.isAfter(minDate)) {
-	      return openToDate;
-	    } else if (minDate && minDate.isAfter(current)) {
-	      return minDate;
-	    } else if (maxDate && openToDate && openToDate.isBefore(maxDate)) {
-	      return openToDate;
-	    } else if (maxDate && maxDate.isBefore(current)) {
-	      return maxDate;
-	    } else if (openToDate) {
-	      return openToDate;
-	    } else {
-	      return current;
-	    }
-	  },
-	  localizeMoment: function localizeMoment(date) {
-	    return date.clone().locale(this.props.locale || _moment2.default.locale());
-	  },
-	  increaseMonth: function increaseMonth() {
-	    var _this = this;
-
-	    this.setState({
-	      date: this.state.date.clone().add(1, 'month')
-	    }, function () {
-	      return _this.handleMonthChange(_this.state.date);
-	    });
-	  },
-	  decreaseMonth: function decreaseMonth() {
-	    var _this2 = this;
-
-	    this.setState({
-	      date: this.state.date.clone().subtract(1, 'month')
-	    }, function () {
-	      return _this2.handleMonthChange(_this2.state.date);
-	    });
-	  },
-	  handleDayClick: function handleDayClick(day, event) {
-	    this.props.onSelect(day, event);
-	  },
-	  handleDayMouseEnter: function handleDayMouseEnter(day) {
-	    this.setState({ selectingDate: day });
-	  },
-	  handleMonthMouseLeave: function handleMonthMouseLeave() {
-	    this.setState({ selectingDate: null });
-	  },
-	  handleMonthChange: function handleMonthChange(date) {
-	    if (this.props.onMonthChange) {
-	      this.props.onMonthChange(date);
-	    }
-	  },
-	  changeYear: function changeYear(year) {
-	    this.setState({
-	      date: this.state.date.clone().set('year', year)
-	    });
-	  },
-	  changeMonth: function changeMonth(month) {
-	    var _this3 = this;
-
-	    this.setState({
-	      date: this.state.date.clone().set('month', month)
-	    }, function () {
-	      return _this3.handleMonthChange(_this3.state.date);
-	    });
-	  },
-	  header: function header() {
-	    var date = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : this.state.date;
-
-	    var startOfWeek = date.clone().startOf('week');
-	    var dayNames = [];
-	    if (this.props.showWeekNumbers) {
-	      dayNames.push(_react2.default.createElement(
-	        'div',
-	        { key: 'W', className: 'react-datepicker__day-name' },
-	        '#'
-	      ));
-	    }
-	    return dayNames.concat([0, 1, 2, 3, 4, 5, 6].map(function (offset) {
-	      var day = startOfWeek.clone().add(offset, 'days');
-	      return _react2.default.createElement(
-	        'div',
-	        { key: offset, className: 'react-datepicker__day-name' },
-	        day.localeData().weekdaysMin(day)
-	      );
-	    }));
-	  },
-	  renderPreviousMonthButton: function renderPreviousMonthButton() {
-	    if (!this.props.forceShowMonthNavigation && (0, _date_utils.allDaysDisabledBefore)(this.state.date, 'month', this.props)) {
-	      return;
-	    }
-	    return _react2.default.createElement('a', {
-	      className: 'react-datepicker__navigation react-datepicker__navigation--previous',
-	      onClick: this.decreaseMonth });
-	  },
-	  renderNextMonthButton: function renderNextMonthButton() {
-	    if (!this.props.forceShowMonthNavigation && (0, _date_utils.allDaysDisabledAfter)(this.state.date, 'month', this.props)) {
-	      return;
-	    }
-	    return _react2.default.createElement('a', {
-	      className: 'react-datepicker__navigation react-datepicker__navigation--next',
-	      onClick: this.increaseMonth });
-	  },
-	  renderCurrentMonth: function renderCurrentMonth() {
-	    var date = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : this.state.date;
-
-	    var classes = ['react-datepicker__current-month'];
-	    if (this.props.showYearDropdown) {
-	      classes.push('react-datepicker__current-month--hasYearDropdown');
-	    }
-	    if (this.props.showMonthDropdown) {
-	      classes.push('react-datepicker__current-month--hasMonthDropdown');
-	    }
-	    return _react2.default.createElement(
-	      'div',
-	      { className: classes.join(' ') },
-	      date.format(this.props.dateFormat)
-	    );
-	  },
-	  renderYearDropdown: function renderYearDropdown() {
-	    var overrideHide = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : false;
-
-	    if (!this.props.showYearDropdown || overrideHide) {
-	      return;
-	    }
-	    return _react2.default.createElement(_year_dropdown2.default, {
-	      dropdownMode: this.props.dropdownMode,
-	      onChange: this.changeYear,
-	      minDate: this.props.minDate,
-	      maxDate: this.props.maxDate,
-	      year: this.state.date.year(),
-	      scrollableYearDropdown: this.props.scrollableYearDropdown });
-	  },
-	  renderMonthDropdown: function renderMonthDropdown() {
-	    var overrideHide = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : false;
-
-	    if (!this.props.showMonthDropdown) {
-	      return;
-	    }
-	    return _react2.default.createElement(_month_dropdown2.default, {
-	      dropdownMode: this.props.dropdownMode,
-	      locale: this.props.locale,
-	      onChange: this.changeMonth,
-	      month: this.state.date.month() });
-	  },
-	  renderTodayButton: function renderTodayButton() {
-	    var _this4 = this;
-
-	    if (!this.props.todayButton) {
-	      return;
-	    }
-	    return _react2.default.createElement(
-	      'div',
-	      { className: 'react-datepicker__today-button', onClick: function onClick(event) {
-	          return _this4.props.onSelect(_moment2.default.utc().utcOffset(_this4.props.utcOffset).startOf('date'), event);
-	        } },
-	      this.props.todayButton
-	    );
-	  },
-	  renderMonths: function renderMonths() {
-	    var monthList = [];
-	    for (var i = 0; i < this.props.monthsShown; ++i) {
-	      var monthDate = this.state.date.clone().add(i, 'M');
-	      var monthKey = 'month-' + i;
-	      monthList.push(_react2.default.createElement(
-	        'div',
-	        { key: monthKey, className: 'react-datepicker__month-container' },
-	        _react2.default.createElement(
-	          'div',
-	          { className: 'react-datepicker__header' },
-	          this.renderCurrentMonth(monthDate),
-	          _react2.default.createElement(
-	            'div',
-	            {
-	              className: 'react-datepicker__header__dropdown react-datepicker__header__dropdown--' + this.props.dropdownMode,
-	              onFocus: this.handleDropdownFocus },
-	            this.renderMonthDropdown(i !== 0),
-	            this.renderYearDropdown(i !== 0)
-	          ),
-	          _react2.default.createElement(
-	            'div',
-	            { className: 'react-datepicker__day-names' },
-	            this.header(monthDate)
-	          )
-	        ),
-	        _react2.default.createElement(_month2.default, {
-	          day: monthDate,
-	          onDayClick: this.handleDayClick,
-	          onDayMouseEnter: this.handleDayMouseEnter,
-	          onMouseLeave: this.handleMonthMouseLeave,
-	          minDate: this.props.minDate,
-	          maxDate: this.props.maxDate,
-	          excludeDates: this.props.excludeDates,
-	          highlightDates: this.props.highlightDates,
-	          selectingDate: this.state.selectingDate,
-	          includeDates: this.props.includeDates,
-	          fixedHeight: this.props.fixedHeight,
-	          filterDate: this.props.filterDate,
-	          selected: this.props.selected,
-	          selectsStart: this.props.selectsStart,
-	          selectsEnd: this.props.selectsEnd,
-	          showWeekNumbers: this.props.showWeekNumbers,
-	          startDate: this.props.startDate,
-	          endDate: this.props.endDate,
-	          peekNextMonth: this.props.peekNextMonth,
-	          utcOffset: this.props.utcOffset })
-	      ));
-	    }
-	    return monthList;
-	  },
-	  render: function render() {
-	    return _react2.default.createElement(
-	      'div',
-	      { className: 'react-datepicker' },
-	      _react2.default.createElement('div', { className: 'react-datepicker__triangle' }),
-	      this.renderPreviousMonthButton(),
-	      this.renderNextMonthButton(),
-	      this.renderMonths(),
-	      this.renderTodayButton(),
-	      this.props.children
-	    );
-	  }
-	});
-
-	module.exports = Calendar;
-
-/***/ },
-/* 456 */
-/***/ function(module, exports, __webpack_require__) {
-
-	var createFind = __webpack_require__(457),
-	    findIndex = __webpack_require__(572);
+	var createFind = __webpack_require__(455),
+	    findIndex = __webpack_require__(570);
 
 	/**
 	 * Iterates over elements of `collection`, returning the first element
@@ -52606,12 +52409,12 @@
 
 
 /***/ },
-/* 457 */
+/* 455 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseIteratee = __webpack_require__(458),
-	    isArrayLike = __webpack_require__(543),
-	    keys = __webpack_require__(525);
+	var baseIteratee = __webpack_require__(456),
+	    isArrayLike = __webpack_require__(541),
+	    keys = __webpack_require__(523);
 
 	/**
 	 * Creates a `_.find` or `_.findLast` function.
@@ -52637,14 +52440,14 @@
 
 
 /***/ },
-/* 458 */
+/* 456 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseMatches = __webpack_require__(459),
-	    baseMatchesProperty = __webpack_require__(552),
-	    identity = __webpack_require__(568),
-	    isArray = __webpack_require__(521),
-	    property = __webpack_require__(569);
+	var baseMatches = __webpack_require__(457),
+	    baseMatchesProperty = __webpack_require__(550),
+	    identity = __webpack_require__(566),
+	    isArray = __webpack_require__(519),
+	    property = __webpack_require__(567);
 
 	/**
 	 * The base implementation of `_.iteratee`.
@@ -52674,12 +52477,12 @@
 
 
 /***/ },
-/* 459 */
+/* 457 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseIsMatch = __webpack_require__(460),
-	    getMatchData = __webpack_require__(549),
-	    matchesStrictComparable = __webpack_require__(551);
+	var baseIsMatch = __webpack_require__(458),
+	    getMatchData = __webpack_require__(547),
+	    matchesStrictComparable = __webpack_require__(549);
 
 	/**
 	 * The base implementation of `_.matches` which doesn't clone `source`.
@@ -52702,11 +52505,11 @@
 
 
 /***/ },
-/* 460 */
+/* 458 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var Stack = __webpack_require__(461),
-	    baseIsEqual = __webpack_require__(505);
+	var Stack = __webpack_require__(459),
+	    baseIsEqual = __webpack_require__(503);
 
 	/** Used to compose bitmasks for value comparisons. */
 	var COMPARE_PARTIAL_FLAG = 1,
@@ -52770,15 +52573,15 @@
 
 
 /***/ },
-/* 461 */
+/* 459 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var ListCache = __webpack_require__(462),
-	    stackClear = __webpack_require__(470),
-	    stackDelete = __webpack_require__(471),
-	    stackGet = __webpack_require__(472),
-	    stackHas = __webpack_require__(473),
-	    stackSet = __webpack_require__(474);
+	var ListCache = __webpack_require__(460),
+	    stackClear = __webpack_require__(468),
+	    stackDelete = __webpack_require__(469),
+	    stackGet = __webpack_require__(470),
+	    stackHas = __webpack_require__(471),
+	    stackSet = __webpack_require__(472);
 
 	/**
 	 * Creates a stack cache object to store key-value pairs.
@@ -52803,14 +52606,14 @@
 
 
 /***/ },
-/* 462 */
+/* 460 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var listCacheClear = __webpack_require__(463),
-	    listCacheDelete = __webpack_require__(464),
-	    listCacheGet = __webpack_require__(467),
-	    listCacheHas = __webpack_require__(468),
-	    listCacheSet = __webpack_require__(469);
+	var listCacheClear = __webpack_require__(461),
+	    listCacheDelete = __webpack_require__(462),
+	    listCacheGet = __webpack_require__(465),
+	    listCacheHas = __webpack_require__(466),
+	    listCacheSet = __webpack_require__(467);
 
 	/**
 	 * Creates an list cache object.
@@ -52841,7 +52644,7 @@
 
 
 /***/ },
-/* 463 */
+/* 461 */
 /***/ function(module, exports) {
 
 	/**
@@ -52860,10 +52663,10 @@
 
 
 /***/ },
-/* 464 */
+/* 462 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var assocIndexOf = __webpack_require__(465);
+	var assocIndexOf = __webpack_require__(463);
 
 	/** Used for built-in method references. */
 	var arrayProto = Array.prototype;
@@ -52901,10 +52704,10 @@
 
 
 /***/ },
-/* 465 */
+/* 463 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var eq = __webpack_require__(466);
+	var eq = __webpack_require__(464);
 
 	/**
 	 * Gets the index at which the `key` is found in `array` of key-value pairs.
@@ -52928,7 +52731,7 @@
 
 
 /***/ },
-/* 466 */
+/* 464 */
 /***/ function(module, exports) {
 
 	/**
@@ -52971,10 +52774,10 @@
 
 
 /***/ },
-/* 467 */
+/* 465 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var assocIndexOf = __webpack_require__(465);
+	var assocIndexOf = __webpack_require__(463);
 
 	/**
 	 * Gets the list cache value for `key`.
@@ -52996,10 +52799,10 @@
 
 
 /***/ },
-/* 468 */
+/* 466 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var assocIndexOf = __webpack_require__(465);
+	var assocIndexOf = __webpack_require__(463);
 
 	/**
 	 * Checks if a list cache value for `key` exists.
@@ -53018,10 +52821,10 @@
 
 
 /***/ },
-/* 469 */
+/* 467 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var assocIndexOf = __webpack_require__(465);
+	var assocIndexOf = __webpack_require__(463);
 
 	/**
 	 * Sets the list cache `key` to `value`.
@@ -53050,10 +52853,10 @@
 
 
 /***/ },
-/* 470 */
+/* 468 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var ListCache = __webpack_require__(462);
+	var ListCache = __webpack_require__(460);
 
 	/**
 	 * Removes all key-value entries from the stack.
@@ -53071,7 +52874,7 @@
 
 
 /***/ },
-/* 471 */
+/* 469 */
 /***/ function(module, exports) {
 
 	/**
@@ -53095,7 +52898,7 @@
 
 
 /***/ },
-/* 472 */
+/* 470 */
 /***/ function(module, exports) {
 
 	/**
@@ -53115,7 +52918,7 @@
 
 
 /***/ },
-/* 473 */
+/* 471 */
 /***/ function(module, exports) {
 
 	/**
@@ -53135,12 +52938,12 @@
 
 
 /***/ },
-/* 474 */
+/* 472 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var ListCache = __webpack_require__(462),
-	    Map = __webpack_require__(475),
-	    MapCache = __webpack_require__(490);
+	var ListCache = __webpack_require__(460),
+	    Map = __webpack_require__(473),
+	    MapCache = __webpack_require__(488);
 
 	/** Used as the size to enable large array optimizations. */
 	var LARGE_ARRAY_SIZE = 200;
@@ -53175,11 +52978,11 @@
 
 
 /***/ },
-/* 475 */
+/* 473 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var getNative = __webpack_require__(476),
-	    root = __webpack_require__(481);
+	var getNative = __webpack_require__(474),
+	    root = __webpack_require__(479);
 
 	/* Built-in method references that are verified to be native. */
 	var Map = getNative(root, 'Map');
@@ -53188,11 +52991,11 @@
 
 
 /***/ },
-/* 476 */
+/* 474 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseIsNative = __webpack_require__(477),
-	    getValue = __webpack_require__(489);
+	var baseIsNative = __webpack_require__(475),
+	    getValue = __webpack_require__(487);
 
 	/**
 	 * Gets the native function at `key` of `object`.
@@ -53211,13 +53014,13 @@
 
 
 /***/ },
-/* 477 */
+/* 475 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var isFunction = __webpack_require__(478),
-	    isMasked = __webpack_require__(486),
-	    isObject = __webpack_require__(485),
-	    toSource = __webpack_require__(488);
+	var isFunction = __webpack_require__(476),
+	    isMasked = __webpack_require__(484),
+	    isObject = __webpack_require__(483),
+	    toSource = __webpack_require__(486);
 
 	/**
 	 * Used to match `RegExp`
@@ -53264,11 +53067,11 @@
 
 
 /***/ },
-/* 478 */
+/* 476 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseGetTag = __webpack_require__(479),
-	    isObject = __webpack_require__(485);
+	var baseGetTag = __webpack_require__(477),
+	    isObject = __webpack_require__(483);
 
 	/** `Object#toString` result references. */
 	var asyncTag = '[object AsyncFunction]',
@@ -53307,12 +53110,12 @@
 
 
 /***/ },
-/* 479 */
+/* 477 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var Symbol = __webpack_require__(480),
-	    getRawTag = __webpack_require__(483),
-	    objectToString = __webpack_require__(484);
+	var Symbol = __webpack_require__(478),
+	    getRawTag = __webpack_require__(481),
+	    objectToString = __webpack_require__(482);
 
 	/** `Object#toString` result references. */
 	var nullTag = '[object Null]',
@@ -53341,10 +53144,10 @@
 
 
 /***/ },
-/* 480 */
+/* 478 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var root = __webpack_require__(481);
+	var root = __webpack_require__(479);
 
 	/** Built-in value references. */
 	var Symbol = root.Symbol;
@@ -53353,10 +53156,10 @@
 
 
 /***/ },
-/* 481 */
+/* 479 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var freeGlobal = __webpack_require__(482);
+	var freeGlobal = __webpack_require__(480);
 
 	/** Detect free variable `self`. */
 	var freeSelf = typeof self == 'object' && self && self.Object === Object && self;
@@ -53368,7 +53171,7 @@
 
 
 /***/ },
-/* 482 */
+/* 480 */
 /***/ function(module, exports) {
 
 	/* WEBPACK VAR INJECTION */(function(global) {/** Detect free variable `global` from Node.js. */
@@ -53379,10 +53182,10 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }())))
 
 /***/ },
-/* 483 */
+/* 481 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var Symbol = __webpack_require__(480);
+	var Symbol = __webpack_require__(478);
 
 	/** Used for built-in method references. */
 	var objectProto = Object.prototype;
@@ -53431,7 +53234,7 @@
 
 
 /***/ },
-/* 484 */
+/* 482 */
 /***/ function(module, exports) {
 
 	/** Used for built-in method references. */
@@ -53459,7 +53262,7 @@
 
 
 /***/ },
-/* 485 */
+/* 483 */
 /***/ function(module, exports) {
 
 	/**
@@ -53496,10 +53299,10 @@
 
 
 /***/ },
-/* 486 */
+/* 484 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var coreJsData = __webpack_require__(487);
+	var coreJsData = __webpack_require__(485);
 
 	/** Used to detect methods masquerading as native. */
 	var maskSrcKey = (function() {
@@ -53522,10 +53325,10 @@
 
 
 /***/ },
-/* 487 */
+/* 485 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var root = __webpack_require__(481);
+	var root = __webpack_require__(479);
 
 	/** Used to detect overreaching core-js shims. */
 	var coreJsData = root['__core-js_shared__'];
@@ -53534,7 +53337,7 @@
 
 
 /***/ },
-/* 488 */
+/* 486 */
 /***/ function(module, exports) {
 
 	/** Used for built-in method references. */
@@ -53566,7 +53369,7 @@
 
 
 /***/ },
-/* 489 */
+/* 487 */
 /***/ function(module, exports) {
 
 	/**
@@ -53585,14 +53388,14 @@
 
 
 /***/ },
-/* 490 */
+/* 488 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var mapCacheClear = __webpack_require__(491),
-	    mapCacheDelete = __webpack_require__(499),
-	    mapCacheGet = __webpack_require__(502),
-	    mapCacheHas = __webpack_require__(503),
-	    mapCacheSet = __webpack_require__(504);
+	var mapCacheClear = __webpack_require__(489),
+	    mapCacheDelete = __webpack_require__(497),
+	    mapCacheGet = __webpack_require__(500),
+	    mapCacheHas = __webpack_require__(501),
+	    mapCacheSet = __webpack_require__(502);
 
 	/**
 	 * Creates a map cache object to store key-value pairs.
@@ -53623,12 +53426,12 @@
 
 
 /***/ },
-/* 491 */
+/* 489 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var Hash = __webpack_require__(492),
-	    ListCache = __webpack_require__(462),
-	    Map = __webpack_require__(475);
+	var Hash = __webpack_require__(490),
+	    ListCache = __webpack_require__(460),
+	    Map = __webpack_require__(473);
 
 	/**
 	 * Removes all key-value entries from the map.
@@ -53650,14 +53453,14 @@
 
 
 /***/ },
-/* 492 */
+/* 490 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var hashClear = __webpack_require__(493),
-	    hashDelete = __webpack_require__(495),
-	    hashGet = __webpack_require__(496),
-	    hashHas = __webpack_require__(497),
-	    hashSet = __webpack_require__(498);
+	var hashClear = __webpack_require__(491),
+	    hashDelete = __webpack_require__(493),
+	    hashGet = __webpack_require__(494),
+	    hashHas = __webpack_require__(495),
+	    hashSet = __webpack_require__(496);
 
 	/**
 	 * Creates a hash object.
@@ -53688,10 +53491,10 @@
 
 
 /***/ },
-/* 493 */
+/* 491 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var nativeCreate = __webpack_require__(494);
+	var nativeCreate = __webpack_require__(492);
 
 	/**
 	 * Removes all key-value entries from the hash.
@@ -53709,10 +53512,10 @@
 
 
 /***/ },
-/* 494 */
+/* 492 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var getNative = __webpack_require__(476);
+	var getNative = __webpack_require__(474);
 
 	/* Built-in method references that are verified to be native. */
 	var nativeCreate = getNative(Object, 'create');
@@ -53721,7 +53524,7 @@
 
 
 /***/ },
-/* 495 */
+/* 493 */
 /***/ function(module, exports) {
 
 	/**
@@ -53744,10 +53547,10 @@
 
 
 /***/ },
-/* 496 */
+/* 494 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var nativeCreate = __webpack_require__(494);
+	var nativeCreate = __webpack_require__(492);
 
 	/** Used to stand-in for `undefined` hash values. */
 	var HASH_UNDEFINED = '__lodash_hash_undefined__';
@@ -53780,10 +53583,10 @@
 
 
 /***/ },
-/* 497 */
+/* 495 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var nativeCreate = __webpack_require__(494);
+	var nativeCreate = __webpack_require__(492);
 
 	/** Used for built-in method references. */
 	var objectProto = Object.prototype;
@@ -53809,10 +53612,10 @@
 
 
 /***/ },
-/* 498 */
+/* 496 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var nativeCreate = __webpack_require__(494);
+	var nativeCreate = __webpack_require__(492);
 
 	/** Used to stand-in for `undefined` hash values. */
 	var HASH_UNDEFINED = '__lodash_hash_undefined__';
@@ -53838,10 +53641,10 @@
 
 
 /***/ },
-/* 499 */
+/* 497 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var getMapData = __webpack_require__(500);
+	var getMapData = __webpack_require__(498);
 
 	/**
 	 * Removes `key` and its value from the map.
@@ -53862,10 +53665,10 @@
 
 
 /***/ },
-/* 500 */
+/* 498 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var isKeyable = __webpack_require__(501);
+	var isKeyable = __webpack_require__(499);
 
 	/**
 	 * Gets the data for `map`.
@@ -53886,7 +53689,7 @@
 
 
 /***/ },
-/* 501 */
+/* 499 */
 /***/ function(module, exports) {
 
 	/**
@@ -53907,10 +53710,10 @@
 
 
 /***/ },
-/* 502 */
+/* 500 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var getMapData = __webpack_require__(500);
+	var getMapData = __webpack_require__(498);
 
 	/**
 	 * Gets the map value for `key`.
@@ -53929,10 +53732,10 @@
 
 
 /***/ },
-/* 503 */
+/* 501 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var getMapData = __webpack_require__(500);
+	var getMapData = __webpack_require__(498);
 
 	/**
 	 * Checks if a map value for `key` exists.
@@ -53951,10 +53754,10 @@
 
 
 /***/ },
-/* 504 */
+/* 502 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var getMapData = __webpack_require__(500);
+	var getMapData = __webpack_require__(498);
 
 	/**
 	 * Sets the map `key` to `value`.
@@ -53979,11 +53782,11 @@
 
 
 /***/ },
-/* 505 */
+/* 503 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseIsEqualDeep = __webpack_require__(506),
-	    isObjectLike = __webpack_require__(530);
+	var baseIsEqualDeep = __webpack_require__(504),
+	    isObjectLike = __webpack_require__(528);
 
 	/**
 	 * The base implementation of `_.isEqual` which supports partial comparisons
@@ -54013,17 +53816,17 @@
 
 
 /***/ },
-/* 506 */
+/* 504 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var Stack = __webpack_require__(461),
-	    equalArrays = __webpack_require__(507),
-	    equalByTag = __webpack_require__(513),
-	    equalObjects = __webpack_require__(517),
-	    getTag = __webpack_require__(544),
-	    isArray = __webpack_require__(521),
-	    isBuffer = __webpack_require__(531),
-	    isTypedArray = __webpack_require__(534);
+	var Stack = __webpack_require__(459),
+	    equalArrays = __webpack_require__(505),
+	    equalByTag = __webpack_require__(511),
+	    equalObjects = __webpack_require__(515),
+	    getTag = __webpack_require__(542),
+	    isArray = __webpack_require__(519),
+	    isBuffer = __webpack_require__(529),
+	    isTypedArray = __webpack_require__(532);
 
 	/** Used to compose bitmasks for value comparisons. */
 	var COMPARE_PARTIAL_FLAG = 1;
@@ -54102,12 +53905,12 @@
 
 
 /***/ },
-/* 507 */
+/* 505 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var SetCache = __webpack_require__(508),
-	    arraySome = __webpack_require__(511),
-	    cacheHas = __webpack_require__(512);
+	var SetCache = __webpack_require__(506),
+	    arraySome = __webpack_require__(509),
+	    cacheHas = __webpack_require__(510);
 
 	/** Used to compose bitmasks for value comparisons. */
 	var COMPARE_PARTIAL_FLAG = 1,
@@ -54191,12 +53994,12 @@
 
 
 /***/ },
-/* 508 */
+/* 506 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var MapCache = __webpack_require__(490),
-	    setCacheAdd = __webpack_require__(509),
-	    setCacheHas = __webpack_require__(510);
+	var MapCache = __webpack_require__(488),
+	    setCacheAdd = __webpack_require__(507),
+	    setCacheHas = __webpack_require__(508);
 
 	/**
 	 *
@@ -54224,7 +54027,7 @@
 
 
 /***/ },
-/* 509 */
+/* 507 */
 /***/ function(module, exports) {
 
 	/** Used to stand-in for `undefined` hash values. */
@@ -54249,7 +54052,7 @@
 
 
 /***/ },
-/* 510 */
+/* 508 */
 /***/ function(module, exports) {
 
 	/**
@@ -54269,7 +54072,7 @@
 
 
 /***/ },
-/* 511 */
+/* 509 */
 /***/ function(module, exports) {
 
 	/**
@@ -54298,7 +54101,7 @@
 
 
 /***/ },
-/* 512 */
+/* 510 */
 /***/ function(module, exports) {
 
 	/**
@@ -54317,15 +54120,15 @@
 
 
 /***/ },
-/* 513 */
+/* 511 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var Symbol = __webpack_require__(480),
-	    Uint8Array = __webpack_require__(514),
-	    eq = __webpack_require__(466),
-	    equalArrays = __webpack_require__(507),
-	    mapToArray = __webpack_require__(515),
-	    setToArray = __webpack_require__(516);
+	var Symbol = __webpack_require__(478),
+	    Uint8Array = __webpack_require__(512),
+	    eq = __webpack_require__(464),
+	    equalArrays = __webpack_require__(505),
+	    mapToArray = __webpack_require__(513),
+	    setToArray = __webpack_require__(514);
 
 	/** Used to compose bitmasks for value comparisons. */
 	var COMPARE_PARTIAL_FLAG = 1,
@@ -54435,10 +54238,10 @@
 
 
 /***/ },
-/* 514 */
+/* 512 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var root = __webpack_require__(481);
+	var root = __webpack_require__(479);
 
 	/** Built-in value references. */
 	var Uint8Array = root.Uint8Array;
@@ -54447,7 +54250,7 @@
 
 
 /***/ },
-/* 515 */
+/* 513 */
 /***/ function(module, exports) {
 
 	/**
@@ -54471,7 +54274,7 @@
 
 
 /***/ },
-/* 516 */
+/* 514 */
 /***/ function(module, exports) {
 
 	/**
@@ -54495,10 +54298,10 @@
 
 
 /***/ },
-/* 517 */
+/* 515 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var getAllKeys = __webpack_require__(518);
+	var getAllKeys = __webpack_require__(516);
 
 	/** Used to compose bitmasks for value comparisons. */
 	var COMPARE_PARTIAL_FLAG = 1;
@@ -54590,12 +54393,12 @@
 
 
 /***/ },
-/* 518 */
+/* 516 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseGetAllKeys = __webpack_require__(519),
-	    getSymbols = __webpack_require__(522),
-	    keys = __webpack_require__(525);
+	var baseGetAllKeys = __webpack_require__(517),
+	    getSymbols = __webpack_require__(520),
+	    keys = __webpack_require__(523);
 
 	/**
 	 * Creates an array of own enumerable property names and symbols of `object`.
@@ -54612,11 +54415,11 @@
 
 
 /***/ },
-/* 519 */
+/* 517 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var arrayPush = __webpack_require__(520),
-	    isArray = __webpack_require__(521);
+	var arrayPush = __webpack_require__(518),
+	    isArray = __webpack_require__(519);
 
 	/**
 	 * The base implementation of `getAllKeys` and `getAllKeysIn` which uses
@@ -54638,7 +54441,7 @@
 
 
 /***/ },
-/* 520 */
+/* 518 */
 /***/ function(module, exports) {
 
 	/**
@@ -54664,7 +54467,7 @@
 
 
 /***/ },
-/* 521 */
+/* 519 */
 /***/ function(module, exports) {
 
 	/**
@@ -54696,11 +54499,11 @@
 
 
 /***/ },
-/* 522 */
+/* 520 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var arrayFilter = __webpack_require__(523),
-	    stubArray = __webpack_require__(524);
+	var arrayFilter = __webpack_require__(521),
+	    stubArray = __webpack_require__(522);
 
 	/** Used for built-in method references. */
 	var objectProto = Object.prototype;
@@ -54732,7 +54535,7 @@
 
 
 /***/ },
-/* 523 */
+/* 521 */
 /***/ function(module, exports) {
 
 	/**
@@ -54763,7 +54566,7 @@
 
 
 /***/ },
-/* 524 */
+/* 522 */
 /***/ function(module, exports) {
 
 	/**
@@ -54792,12 +54595,12 @@
 
 
 /***/ },
-/* 525 */
+/* 523 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var arrayLikeKeys = __webpack_require__(526),
-	    baseKeys = __webpack_require__(539),
-	    isArrayLike = __webpack_require__(543);
+	var arrayLikeKeys = __webpack_require__(524),
+	    baseKeys = __webpack_require__(537),
+	    isArrayLike = __webpack_require__(541);
 
 	/**
 	 * Creates an array of the own enumerable property names of `object`.
@@ -54835,15 +54638,15 @@
 
 
 /***/ },
-/* 526 */
+/* 524 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseTimes = __webpack_require__(527),
-	    isArguments = __webpack_require__(528),
-	    isArray = __webpack_require__(521),
-	    isBuffer = __webpack_require__(531),
-	    isIndex = __webpack_require__(533),
-	    isTypedArray = __webpack_require__(534);
+	var baseTimes = __webpack_require__(525),
+	    isArguments = __webpack_require__(526),
+	    isArray = __webpack_require__(519),
+	    isBuffer = __webpack_require__(529),
+	    isIndex = __webpack_require__(531),
+	    isTypedArray = __webpack_require__(532);
 
 	/** Used for built-in method references. */
 	var objectProto = Object.prototype;
@@ -54890,7 +54693,7 @@
 
 
 /***/ },
-/* 527 */
+/* 525 */
 /***/ function(module, exports) {
 
 	/**
@@ -54916,11 +54719,11 @@
 
 
 /***/ },
-/* 528 */
+/* 526 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseIsArguments = __webpack_require__(529),
-	    isObjectLike = __webpack_require__(530);
+	var baseIsArguments = __webpack_require__(527),
+	    isObjectLike = __webpack_require__(528);
 
 	/** Used for built-in method references. */
 	var objectProto = Object.prototype;
@@ -54958,11 +54761,11 @@
 
 
 /***/ },
-/* 529 */
+/* 527 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseGetTag = __webpack_require__(479),
-	    isObjectLike = __webpack_require__(530);
+	var baseGetTag = __webpack_require__(477),
+	    isObjectLike = __webpack_require__(528);
 
 	/** `Object#toString` result references. */
 	var argsTag = '[object Arguments]';
@@ -54982,7 +54785,7 @@
 
 
 /***/ },
-/* 530 */
+/* 528 */
 /***/ function(module, exports) {
 
 	/**
@@ -55017,11 +54820,11 @@
 
 
 /***/ },
-/* 531 */
+/* 529 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/* WEBPACK VAR INJECTION */(function(module) {var root = __webpack_require__(481),
-	    stubFalse = __webpack_require__(532);
+	/* WEBPACK VAR INJECTION */(function(module) {var root = __webpack_require__(479),
+	    stubFalse = __webpack_require__(530);
 
 	/** Detect free variable `exports`. */
 	var freeExports = typeof exports == 'object' && exports && !exports.nodeType && exports;
@@ -55062,7 +54865,7 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(344)(module)))
 
 /***/ },
-/* 532 */
+/* 530 */
 /***/ function(module, exports) {
 
 	/**
@@ -55086,7 +54889,7 @@
 
 
 /***/ },
-/* 533 */
+/* 531 */
 /***/ function(module, exports) {
 
 	/** Used as references for various `Number` constants. */
@@ -55114,12 +54917,12 @@
 
 
 /***/ },
-/* 534 */
+/* 532 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseIsTypedArray = __webpack_require__(535),
-	    baseUnary = __webpack_require__(537),
-	    nodeUtil = __webpack_require__(538);
+	var baseIsTypedArray = __webpack_require__(533),
+	    baseUnary = __webpack_require__(535),
+	    nodeUtil = __webpack_require__(536);
 
 	/* Node.js helper references. */
 	var nodeIsTypedArray = nodeUtil && nodeUtil.isTypedArray;
@@ -55147,12 +54950,12 @@
 
 
 /***/ },
-/* 535 */
+/* 533 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseGetTag = __webpack_require__(479),
-	    isLength = __webpack_require__(536),
-	    isObjectLike = __webpack_require__(530);
+	var baseGetTag = __webpack_require__(477),
+	    isLength = __webpack_require__(534),
+	    isObjectLike = __webpack_require__(528);
 
 	/** `Object#toString` result references. */
 	var argsTag = '[object Arguments]',
@@ -55213,7 +55016,7 @@
 
 
 /***/ },
-/* 536 */
+/* 534 */
 /***/ function(module, exports) {
 
 	/** Used as references for various `Number` constants. */
@@ -55254,7 +55057,7 @@
 
 
 /***/ },
-/* 537 */
+/* 535 */
 /***/ function(module, exports) {
 
 	/**
@@ -55274,10 +55077,10 @@
 
 
 /***/ },
-/* 538 */
+/* 536 */
 /***/ function(module, exports, __webpack_require__) {
 
-	/* WEBPACK VAR INJECTION */(function(module) {var freeGlobal = __webpack_require__(482);
+	/* WEBPACK VAR INJECTION */(function(module) {var freeGlobal = __webpack_require__(480);
 
 	/** Detect free variable `exports`. */
 	var freeExports = typeof exports == 'object' && exports && !exports.nodeType && exports;
@@ -55303,11 +55106,11 @@
 	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(344)(module)))
 
 /***/ },
-/* 539 */
+/* 537 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var isPrototype = __webpack_require__(540),
-	    nativeKeys = __webpack_require__(541);
+	var isPrototype = __webpack_require__(538),
+	    nativeKeys = __webpack_require__(539);
 
 	/** Used for built-in method references. */
 	var objectProto = Object.prototype;
@@ -55339,7 +55142,7 @@
 
 
 /***/ },
-/* 540 */
+/* 538 */
 /***/ function(module, exports) {
 
 	/** Used for built-in method references. */
@@ -55363,10 +55166,10 @@
 
 
 /***/ },
-/* 541 */
+/* 539 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var overArg = __webpack_require__(542);
+	var overArg = __webpack_require__(540);
 
 	/* Built-in method references for those with the same name as other `lodash` methods. */
 	var nativeKeys = overArg(Object.keys, Object);
@@ -55375,7 +55178,7 @@
 
 
 /***/ },
-/* 542 */
+/* 540 */
 /***/ function(module, exports) {
 
 	/**
@@ -55396,11 +55199,11 @@
 
 
 /***/ },
-/* 543 */
+/* 541 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var isFunction = __webpack_require__(478),
-	    isLength = __webpack_require__(536);
+	var isFunction = __webpack_require__(476),
+	    isLength = __webpack_require__(534);
 
 	/**
 	 * Checks if `value` is array-like. A value is considered array-like if it's
@@ -55435,16 +55238,16 @@
 
 
 /***/ },
-/* 544 */
+/* 542 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var DataView = __webpack_require__(545),
-	    Map = __webpack_require__(475),
-	    Promise = __webpack_require__(546),
-	    Set = __webpack_require__(547),
-	    WeakMap = __webpack_require__(548),
-	    baseGetTag = __webpack_require__(479),
-	    toSource = __webpack_require__(488);
+	var DataView = __webpack_require__(543),
+	    Map = __webpack_require__(473),
+	    Promise = __webpack_require__(544),
+	    Set = __webpack_require__(545),
+	    WeakMap = __webpack_require__(546),
+	    baseGetTag = __webpack_require__(477),
+	    toSource = __webpack_require__(486);
 
 	/** `Object#toString` result references. */
 	var mapTag = '[object Map]',
@@ -55499,11 +55302,11 @@
 
 
 /***/ },
-/* 545 */
+/* 543 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var getNative = __webpack_require__(476),
-	    root = __webpack_require__(481);
+	var getNative = __webpack_require__(474),
+	    root = __webpack_require__(479);
 
 	/* Built-in method references that are verified to be native. */
 	var DataView = getNative(root, 'DataView');
@@ -55512,11 +55315,11 @@
 
 
 /***/ },
-/* 546 */
+/* 544 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var getNative = __webpack_require__(476),
-	    root = __webpack_require__(481);
+	var getNative = __webpack_require__(474),
+	    root = __webpack_require__(479);
 
 	/* Built-in method references that are verified to be native. */
 	var Promise = getNative(root, 'Promise');
@@ -55525,11 +55328,11 @@
 
 
 /***/ },
-/* 547 */
+/* 545 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var getNative = __webpack_require__(476),
-	    root = __webpack_require__(481);
+	var getNative = __webpack_require__(474),
+	    root = __webpack_require__(479);
 
 	/* Built-in method references that are verified to be native. */
 	var Set = getNative(root, 'Set');
@@ -55538,11 +55341,11 @@
 
 
 /***/ },
-/* 548 */
+/* 546 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var getNative = __webpack_require__(476),
-	    root = __webpack_require__(481);
+	var getNative = __webpack_require__(474),
+	    root = __webpack_require__(479);
 
 	/* Built-in method references that are verified to be native. */
 	var WeakMap = getNative(root, 'WeakMap');
@@ -55551,11 +55354,11 @@
 
 
 /***/ },
-/* 549 */
+/* 547 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var isStrictComparable = __webpack_require__(550),
-	    keys = __webpack_require__(525);
+	var isStrictComparable = __webpack_require__(548),
+	    keys = __webpack_require__(523);
 
 	/**
 	 * Gets the property names, values, and compare flags of `object`.
@@ -55581,10 +55384,10 @@
 
 
 /***/ },
-/* 550 */
+/* 548 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var isObject = __webpack_require__(485);
+	var isObject = __webpack_require__(483);
 
 	/**
 	 * Checks if `value` is suitable for strict equality comparisons, i.e. `===`.
@@ -55602,7 +55405,7 @@
 
 
 /***/ },
-/* 551 */
+/* 549 */
 /***/ function(module, exports) {
 
 	/**
@@ -55628,16 +55431,16 @@
 
 
 /***/ },
-/* 552 */
+/* 550 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseIsEqual = __webpack_require__(505),
-	    get = __webpack_require__(553),
-	    hasIn = __webpack_require__(565),
-	    isKey = __webpack_require__(556),
-	    isStrictComparable = __webpack_require__(550),
-	    matchesStrictComparable = __webpack_require__(551),
-	    toKey = __webpack_require__(564);
+	var baseIsEqual = __webpack_require__(503),
+	    get = __webpack_require__(551),
+	    hasIn = __webpack_require__(563),
+	    isKey = __webpack_require__(554),
+	    isStrictComparable = __webpack_require__(548),
+	    matchesStrictComparable = __webpack_require__(549),
+	    toKey = __webpack_require__(562);
 
 	/** Used to compose bitmasks for value comparisons. */
 	var COMPARE_PARTIAL_FLAG = 1,
@@ -55667,10 +55470,10 @@
 
 
 /***/ },
-/* 553 */
+/* 551 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseGet = __webpack_require__(554);
+	var baseGet = __webpack_require__(552);
 
 	/**
 	 * Gets the value at `path` of `object`. If the resolved value is
@@ -55706,11 +55509,11 @@
 
 
 /***/ },
-/* 554 */
+/* 552 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var castPath = __webpack_require__(555),
-	    toKey = __webpack_require__(564);
+	var castPath = __webpack_require__(553),
+	    toKey = __webpack_require__(562);
 
 	/**
 	 * The base implementation of `_.get` without support for default values.
@@ -55736,13 +55539,13 @@
 
 
 /***/ },
-/* 555 */
+/* 553 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var isArray = __webpack_require__(521),
-	    isKey = __webpack_require__(556),
-	    stringToPath = __webpack_require__(558),
-	    toString = __webpack_require__(561);
+	var isArray = __webpack_require__(519),
+	    isKey = __webpack_require__(554),
+	    stringToPath = __webpack_require__(556),
+	    toString = __webpack_require__(559);
 
 	/**
 	 * Casts `value` to a path array if it's not one.
@@ -55763,11 +55566,11 @@
 
 
 /***/ },
-/* 556 */
+/* 554 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var isArray = __webpack_require__(521),
-	    isSymbol = __webpack_require__(557);
+	var isArray = __webpack_require__(519),
+	    isSymbol = __webpack_require__(555);
 
 	/** Used to match property names within property paths. */
 	var reIsDeepProp = /\.|\[(?:[^[\]]*|(["'])(?:(?!\1)[^\\]|\\.)*?\1)\]/,
@@ -55798,11 +55601,11 @@
 
 
 /***/ },
-/* 557 */
+/* 555 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseGetTag = __webpack_require__(479),
-	    isObjectLike = __webpack_require__(530);
+	var baseGetTag = __webpack_require__(477),
+	    isObjectLike = __webpack_require__(528);
 
 	/** `Object#toString` result references. */
 	var symbolTag = '[object Symbol]';
@@ -55833,10 +55636,10 @@
 
 
 /***/ },
-/* 558 */
+/* 556 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var memoizeCapped = __webpack_require__(559);
+	var memoizeCapped = __webpack_require__(557);
 
 	/** Used to match property names within property paths. */
 	var reLeadingDot = /^\./,
@@ -55867,10 +55670,10 @@
 
 
 /***/ },
-/* 559 */
+/* 557 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var memoize = __webpack_require__(560);
+	var memoize = __webpack_require__(558);
 
 	/** Used as the maximum memoize cache size. */
 	var MAX_MEMOIZE_SIZE = 500;
@@ -55899,10 +55702,10 @@
 
 
 /***/ },
-/* 560 */
+/* 558 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var MapCache = __webpack_require__(490);
+	var MapCache = __webpack_require__(488);
 
 	/** Error message constants. */
 	var FUNC_ERROR_TEXT = 'Expected a function';
@@ -55978,10 +55781,10 @@
 
 
 /***/ },
-/* 561 */
+/* 559 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseToString = __webpack_require__(562);
+	var baseToString = __webpack_require__(560);
 
 	/**
 	 * Converts `value` to a string. An empty string is returned for `null`
@@ -56012,13 +55815,13 @@
 
 
 /***/ },
-/* 562 */
+/* 560 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var Symbol = __webpack_require__(480),
-	    arrayMap = __webpack_require__(563),
-	    isArray = __webpack_require__(521),
-	    isSymbol = __webpack_require__(557);
+	var Symbol = __webpack_require__(478),
+	    arrayMap = __webpack_require__(561),
+	    isArray = __webpack_require__(519),
+	    isSymbol = __webpack_require__(555);
 
 	/** Used as references for various `Number` constants. */
 	var INFINITY = 1 / 0;
@@ -56055,7 +55858,7 @@
 
 
 /***/ },
-/* 563 */
+/* 561 */
 /***/ function(module, exports) {
 
 	/**
@@ -56082,10 +55885,10 @@
 
 
 /***/ },
-/* 564 */
+/* 562 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var isSymbol = __webpack_require__(557);
+	var isSymbol = __webpack_require__(555);
 
 	/** Used as references for various `Number` constants. */
 	var INFINITY = 1 / 0;
@@ -56109,11 +55912,11 @@
 
 
 /***/ },
-/* 565 */
+/* 563 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseHasIn = __webpack_require__(566),
-	    hasPath = __webpack_require__(567);
+	var baseHasIn = __webpack_require__(564),
+	    hasPath = __webpack_require__(565);
 
 	/**
 	 * Checks if `path` is a direct or inherited property of `object`.
@@ -56149,7 +55952,7 @@
 
 
 /***/ },
-/* 566 */
+/* 564 */
 /***/ function(module, exports) {
 
 	/**
@@ -56168,15 +55971,15 @@
 
 
 /***/ },
-/* 567 */
+/* 565 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var castPath = __webpack_require__(555),
-	    isArguments = __webpack_require__(528),
-	    isArray = __webpack_require__(521),
-	    isIndex = __webpack_require__(533),
-	    isLength = __webpack_require__(536),
-	    toKey = __webpack_require__(564);
+	var castPath = __webpack_require__(553),
+	    isArguments = __webpack_require__(526),
+	    isArray = __webpack_require__(519),
+	    isIndex = __webpack_require__(531),
+	    isLength = __webpack_require__(534),
+	    toKey = __webpack_require__(562);
 
 	/**
 	 * Checks if `path` exists on `object`.
@@ -56213,7 +56016,7 @@
 
 
 /***/ },
-/* 568 */
+/* 566 */
 /***/ function(module, exports) {
 
 	/**
@@ -56240,13 +56043,13 @@
 
 
 /***/ },
-/* 569 */
+/* 567 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseProperty = __webpack_require__(570),
-	    basePropertyDeep = __webpack_require__(571),
-	    isKey = __webpack_require__(556),
-	    toKey = __webpack_require__(564);
+	var baseProperty = __webpack_require__(568),
+	    basePropertyDeep = __webpack_require__(569),
+	    isKey = __webpack_require__(554),
+	    toKey = __webpack_require__(562);
 
 	/**
 	 * Creates a function that returns the value at `path` of a given object.
@@ -56278,7 +56081,7 @@
 
 
 /***/ },
-/* 570 */
+/* 568 */
 /***/ function(module, exports) {
 
 	/**
@@ -56298,10 +56101,10 @@
 
 
 /***/ },
-/* 571 */
+/* 569 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseGet = __webpack_require__(554);
+	var baseGet = __webpack_require__(552);
 
 	/**
 	 * A specialized version of `baseProperty` which supports deep paths.
@@ -56320,12 +56123,12 @@
 
 
 /***/ },
-/* 572 */
+/* 570 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseFindIndex = __webpack_require__(573),
-	    baseIteratee = __webpack_require__(458),
-	    toInteger = __webpack_require__(574);
+	var baseFindIndex = __webpack_require__(571),
+	    baseIteratee = __webpack_require__(456),
+	    toInteger = __webpack_require__(572);
 
 	/* Built-in method references for those with the same name as other `lodash` methods. */
 	var nativeMax = Math.max;
@@ -56381,7 +56184,7 @@
 
 
 /***/ },
-/* 573 */
+/* 571 */
 /***/ function(module, exports) {
 
 	/**
@@ -56411,10 +56214,10 @@
 
 
 /***/ },
-/* 574 */
+/* 572 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var toFinite = __webpack_require__(575);
+	var toFinite = __webpack_require__(573);
 
 	/**
 	 * Converts `value` to an integer.
@@ -56453,10 +56256,10 @@
 
 
 /***/ },
-/* 575 */
+/* 573 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var toNumber = __webpack_require__(576);
+	var toNumber = __webpack_require__(574);
 
 	/** Used as references for various `Number` constants. */
 	var INFINITY = 1 / 0,
@@ -56501,11 +56304,11 @@
 
 
 /***/ },
-/* 576 */
+/* 574 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var isObject = __webpack_require__(485),
-	    isSymbol = __webpack_require__(557);
+	var isObject = __webpack_require__(483),
+	    isSymbol = __webpack_require__(555);
 
 	/** Used as references for various `Number` constants. */
 	var NAN = 0 / 0;
@@ -56573,7 +56376,7 @@
 
 
 /***/ },
-/* 577 */
+/* 575 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -56582,11 +56385,11 @@
 
 	var _react2 = _interopRequireDefault(_react);
 
-	var _year_dropdown_options = __webpack_require__(578);
+	var _year_dropdown_options = __webpack_require__(576);
 
 	var _year_dropdown_options2 = _interopRequireDefault(_year_dropdown_options);
 
-	var _reactOnclickoutside = __webpack_require__(580);
+	var _reactOnclickoutside = __webpack_require__(578);
 
 	var _reactOnclickoutside2 = _interopRequireDefault(_reactOnclickoutside);
 
@@ -56701,7 +56504,7 @@
 	module.exports = YearDropdown;
 
 /***/ },
-/* 578 */
+/* 576 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -56710,7 +56513,7 @@
 
 	var _react2 = _interopRequireDefault(_react);
 
-	var _classnames = __webpack_require__(579);
+	var _classnames = __webpack_require__(577);
 
 	var _classnames2 = _interopRequireDefault(_classnames);
 
@@ -56815,7 +56618,7 @@
 	module.exports = YearDropdownOptions;
 
 /***/ },
-/* 579 */
+/* 577 */
 /***/ function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;/*!
@@ -56869,7 +56672,7 @@
 
 
 /***/ },
-/* 580 */
+/* 578 */
 /***/ function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_ARRAY__, __WEBPACK_AMD_DEFINE_RESULT__;/**
@@ -57166,7 +56969,7 @@
 
 
 /***/ },
-/* 581 */
+/* 579 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -57175,11 +56978,11 @@
 
 	var _react2 = _interopRequireDefault(_react);
 
-	var _month_dropdown_options = __webpack_require__(582);
+	var _month_dropdown_options = __webpack_require__(580);
 
 	var _month_dropdown_options2 = _interopRequireDefault(_month_dropdown_options);
 
-	var _reactOnclickoutside = __webpack_require__(580);
+	var _reactOnclickoutside = __webpack_require__(578);
 
 	var _reactOnclickoutside2 = _interopRequireDefault(_reactOnclickoutside);
 
@@ -57187,7 +56990,7 @@
 
 	var _moment2 = _interopRequireDefault(_moment);
 
-	var _range = __webpack_require__(583);
+	var _range = __webpack_require__(581);
 
 	var _range2 = _interopRequireDefault(_range);
 
@@ -57299,7 +57102,7 @@
 	module.exports = MonthDropdown;
 
 /***/ },
-/* 582 */
+/* 580 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -57360,10 +57163,10 @@
 	module.exports = MonthDropdownOptions;
 
 /***/ },
-/* 583 */
+/* 581 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var createRange = __webpack_require__(584);
+	var createRange = __webpack_require__(582);
 
 	/**
 	 * Creates an array of numbers (positive and/or negative) progressing from
@@ -57412,12 +57215,12 @@
 
 
 /***/ },
-/* 584 */
+/* 582 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseRange = __webpack_require__(585),
-	    isIterateeCall = __webpack_require__(586),
-	    toFinite = __webpack_require__(575);
+	var baseRange = __webpack_require__(583),
+	    isIterateeCall = __webpack_require__(584),
+	    toFinite = __webpack_require__(573);
 
 	/**
 	 * Creates a `_.range` or `_.rangeRight` function.
@@ -57448,7 +57251,7 @@
 
 
 /***/ },
-/* 585 */
+/* 583 */
 /***/ function(module, exports) {
 
 	/* Built-in method references for those with the same name as other `lodash` methods. */
@@ -57482,13 +57285,13 @@
 
 
 /***/ },
-/* 586 */
+/* 584 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var eq = __webpack_require__(466),
-	    isArrayLike = __webpack_require__(543),
-	    isIndex = __webpack_require__(533),
-	    isObject = __webpack_require__(485);
+	var eq = __webpack_require__(464),
+	    isArrayLike = __webpack_require__(541),
+	    isIndex = __webpack_require__(531),
+	    isObject = __webpack_require__(483);
 
 	/**
 	 * Checks if the given arguments are from an iteratee call.
@@ -57518,7 +57321,7 @@
 
 
 /***/ },
-/* 587 */
+/* 585 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -57527,11 +57330,11 @@
 
 	var _react2 = _interopRequireDefault(_react);
 
-	var _classnames = __webpack_require__(579);
+	var _classnames = __webpack_require__(577);
 
 	var _classnames2 = _interopRequireDefault(_classnames);
 
-	var _week = __webpack_require__(588);
+	var _week = __webpack_require__(586);
 
 	var _week2 = _interopRequireDefault(_week);
 
@@ -57657,7 +57460,7 @@
 	module.exports = Month;
 
 /***/ },
-/* 588 */
+/* 586 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -57666,11 +57469,11 @@
 
 	var _react2 = _interopRequireDefault(_react);
 
-	var _day = __webpack_require__(589);
+	var _day = __webpack_require__(587);
 
 	var _day2 = _interopRequireDefault(_day);
 
-	var _week_number = __webpack_require__(590);
+	var _week_number = __webpack_require__(589);
 
 	var _week_number2 = _interopRequireDefault(_week_number);
 
@@ -57753,7 +57556,7 @@
 	module.exports = Week;
 
 /***/ },
-/* 589 */
+/* 587 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -57766,11 +57569,11 @@
 
 	var _react2 = _interopRequireDefault(_react);
 
-	var _classnames = __webpack_require__(579);
+	var _classnames = __webpack_require__(577);
 
 	var _classnames2 = _interopRequireDefault(_classnames);
 
-	var _date_utils = __webpack_require__(454);
+	var _date_utils = __webpack_require__(588);
 
 	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
@@ -57949,7 +57752,128 @@
 	module.exports = Day;
 
 /***/ },
-/* 590 */
+/* 588 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+
+	Object.defineProperty(exports, "__esModule", {
+	  value: true
+	});
+	exports.isSameDay = isSameDay;
+	exports.isDayInRange = isDayInRange;
+	exports.isDayDisabled = isDayDisabled;
+	exports.allDaysDisabledBefore = allDaysDisabledBefore;
+	exports.allDaysDisabledAfter = allDaysDisabledAfter;
+	exports.getEffectiveMinDate = getEffectiveMinDate;
+	exports.getEffectiveMaxDate = getEffectiveMaxDate;
+	exports.parseDate = parseDate;
+	exports.safeDateFormat = safeDateFormat;
+
+	var _moment = __webpack_require__(343);
+
+	var _moment2 = _interopRequireDefault(_moment);
+
+	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+	function isSameDay(moment1, moment2) {
+	  if (moment1 && moment2) {
+	    return moment1.isSame(moment2, 'day');
+	  } else {
+	    return !moment1 && !moment2;
+	  }
+	}
+
+	function isDayInRange(day, startDate, endDate) {
+	  var before = startDate.clone().startOf('day').subtract(1, 'seconds');
+	  var after = endDate.clone().startOf('day').add(1, 'seconds');
+	  return day.clone().startOf('day').isBetween(before, after);
+	}
+
+	function isDayDisabled(day) {
+	  var _ref = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {},
+	      minDate = _ref.minDate,
+	      maxDate = _ref.maxDate,
+	      excludeDates = _ref.excludeDates,
+	      includeDates = _ref.includeDates,
+	      filterDate = _ref.filterDate;
+
+	  return minDate && day.isBefore(minDate, 'day') || maxDate && day.isAfter(maxDate, 'day') || excludeDates && excludeDates.some(function (excludeDate) {
+	    return isSameDay(day, excludeDate);
+	  }) || includeDates && !includeDates.some(function (includeDate) {
+	    return isSameDay(day, includeDate);
+	  }) || filterDate && !filterDate(day.clone()) || false;
+	}
+
+	function allDaysDisabledBefore(day, unit) {
+	  var _ref2 = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {},
+	      minDate = _ref2.minDate,
+	      includeDates = _ref2.includeDates;
+
+	  var dateBefore = day.clone().subtract(1, unit);
+	  return minDate && dateBefore.isBefore(minDate, unit) || includeDates && includeDates.every(function (includeDate) {
+	    return dateBefore.isBefore(includeDate, unit);
+	  }) || false;
+	}
+
+	function allDaysDisabledAfter(day, unit) {
+	  var _ref3 = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {},
+	      maxDate = _ref3.maxDate,
+	      includeDates = _ref3.includeDates;
+
+	  var dateAfter = day.clone().add(1, unit);
+	  return maxDate && dateAfter.isAfter(maxDate, unit) || includeDates && includeDates.every(function (includeDate) {
+	    return dateAfter.isAfter(includeDate, unit);
+	  }) || false;
+	}
+
+	function getEffectiveMinDate(_ref4) {
+	  var minDate = _ref4.minDate,
+	      includeDates = _ref4.includeDates;
+
+	  if (includeDates && minDate) {
+	    return _moment2.default.min(includeDates.filter(function (includeDate) {
+	      return minDate.isSameOrBefore(includeDate, 'day');
+	    }));
+	  } else if (includeDates) {
+	    return _moment2.default.min(includeDates);
+	  } else {
+	    return minDate;
+	  }
+	}
+
+	function getEffectiveMaxDate(_ref5) {
+	  var maxDate = _ref5.maxDate,
+	      includeDates = _ref5.includeDates;
+
+	  if (includeDates && maxDate) {
+	    return _moment2.default.max(includeDates.filter(function (includeDate) {
+	      return maxDate.isSameOrAfter(includeDate, 'day');
+	    }));
+	  } else if (includeDates) {
+	    return _moment2.default.max(includeDates);
+	  } else {
+	    return maxDate;
+	  }
+	}
+
+	function parseDate(value, _ref6) {
+	  var dateFormat = _ref6.dateFormat,
+	      locale = _ref6.locale;
+
+	  var m = (0, _moment2.default)(value, dateFormat, locale || _moment2.default.locale(), true);
+	  return m.isValid() ? m : null;
+	}
+
+	function safeDateFormat(date, _ref7) {
+	  var dateFormat = _ref7.dateFormat,
+	      locale = _ref7.locale;
+
+	  return date && date.clone().locale(locale || _moment2.default.locale()).format(Array.isArray(dateFormat) ? dateFormat[0] : dateFormat) || '';
+	}
+
+/***/ },
+/* 589 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -57981,11 +57905,11 @@
 	module.exports = WeekNumber;
 
 /***/ },
-/* 591 */
+/* 590 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseDelay = __webpack_require__(592),
-	    baseRest = __webpack_require__(593);
+	var baseDelay = __webpack_require__(591),
+	    baseRest = __webpack_require__(592);
 
 	/**
 	 * Defers invoking the `func` until the current call stack has cleared. Any
@@ -58013,7 +57937,7 @@
 
 
 /***/ },
-/* 592 */
+/* 591 */
 /***/ function(module, exports) {
 
 	/** Error message constants. */
@@ -58040,12 +57964,12 @@
 
 
 /***/ },
-/* 593 */
+/* 592 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var identity = __webpack_require__(568),
-	    overRest = __webpack_require__(594),
-	    setToString = __webpack_require__(596);
+	var identity = __webpack_require__(566),
+	    overRest = __webpack_require__(593),
+	    setToString = __webpack_require__(595);
 
 	/**
 	 * The base implementation of `_.rest` which doesn't validate or coerce arguments.
@@ -58063,10 +57987,10 @@
 
 
 /***/ },
-/* 594 */
+/* 593 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var apply = __webpack_require__(595);
+	var apply = __webpack_require__(594);
 
 	/* Built-in method references for those with the same name as other `lodash` methods. */
 	var nativeMax = Math.max;
@@ -58105,7 +58029,7 @@
 
 
 /***/ },
-/* 595 */
+/* 594 */
 /***/ function(module, exports) {
 
 	/**
@@ -58132,11 +58056,11 @@
 
 
 /***/ },
-/* 596 */
+/* 595 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var baseSetToString = __webpack_require__(597),
-	    shortOut = __webpack_require__(600);
+	var baseSetToString = __webpack_require__(596),
+	    shortOut = __webpack_require__(599);
 
 	/**
 	 * Sets the `toString` method of `func` to return `string`.
@@ -58152,12 +58076,12 @@
 
 
 /***/ },
-/* 597 */
+/* 596 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var constant = __webpack_require__(598),
-	    defineProperty = __webpack_require__(599),
-	    identity = __webpack_require__(568);
+	var constant = __webpack_require__(597),
+	    defineProperty = __webpack_require__(598),
+	    identity = __webpack_require__(566);
 
 	/**
 	 * The base implementation of `setToString` without support for hot loop shorting.
@@ -58180,7 +58104,7 @@
 
 
 /***/ },
-/* 598 */
+/* 597 */
 /***/ function(module, exports) {
 
 	/**
@@ -58212,10 +58136,10 @@
 
 
 /***/ },
-/* 599 */
+/* 598 */
 /***/ function(module, exports, __webpack_require__) {
 
-	var getNative = __webpack_require__(476);
+	var getNative = __webpack_require__(474);
 
 	var defineProperty = (function() {
 	  try {
@@ -58229,7 +58153,7 @@
 
 
 /***/ },
-/* 600 */
+/* 599 */
 /***/ function(module, exports) {
 
 	/** Used to detect hot functions by number of calls within a span of milliseconds. */
@@ -58272,7 +58196,7 @@
 
 
 /***/ },
-/* 601 */
+/* 600 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -58287,7 +58211,7 @@
 
 	var _reactDom2 = _interopRequireDefault(_reactDom);
 
-	var _tether = __webpack_require__(602);
+	var _tether = __webpack_require__(601);
 
 	var _tether2 = _interopRequireDefault(_tether);
 
@@ -58444,7 +58368,7 @@
 	module.exports = TetherComponent;
 
 /***/ },
-/* 602 */
+/* 601 */
 /***/ function(module, exports, __webpack_require__) {
 
 	var __WEBPACK_AMD_DEFINE_FACTORY__, __WEBPACK_AMD_DEFINE_RESULT__;/*! tether 1.4.0 */
@@ -60261,7 +60185,7 @@
 
 
 /***/ },
-/* 603 */
+/* 602 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -60300,7 +60224,7 @@
 	});
 
 /***/ },
-/* 604 */
+/* 603 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -60372,7 +60296,7 @@
 	});
 
 /***/ },
-/* 605 */
+/* 604 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -60441,7 +60365,7 @@
 	});
 
 /***/ },
-/* 606 */
+/* 605 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -60486,7 +60410,7 @@
 	});
 
 /***/ },
-/* 607 */
+/* 606 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -60569,7 +60493,7 @@
 	});
 
 /***/ },
-/* 608 */
+/* 607 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -60641,7 +60565,7 @@
 	});
 
 /***/ },
-/* 609 */
+/* 608 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -60717,7 +60641,7 @@
 	});
 
 /***/ },
-/* 610 */
+/* 609 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -60793,7 +60717,7 @@
 	});
 
 /***/ },
-/* 611 */
+/* 610 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -60869,7 +60793,7 @@
 	});
 
 /***/ },
-/* 612 */
+/* 611 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -60945,7 +60869,7 @@
 	});
 
 /***/ },
-/* 613 */
+/* 612 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -61018,7 +60942,7 @@
 	});
 
 /***/ },
-/* 614 */
+/* 613 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -61089,7 +61013,7 @@
 	});
 
 /***/ },
-/* 615 */
+/* 614 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -61195,7 +61119,7 @@
 	});
 
 /***/ },
-/* 616 */
+/* 615 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -61269,7 +61193,7 @@
 	});
 
 /***/ },
-/* 617 */
+/* 616 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -61371,7 +61295,7 @@
 	module.exports = DateRange;
 
 /***/ },
-/* 618 */
+/* 617 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -61439,7 +61363,7 @@
 	});
 
 /***/ },
-/* 619 */
+/* 618 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -61516,7 +61440,7 @@
 	});
 
 /***/ },
-/* 620 */
+/* 619 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -61585,7 +61509,7 @@
 	});
 
 /***/ },
-/* 621 */
+/* 620 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -61667,7 +61591,7 @@
 	});
 
 /***/ },
-/* 622 */
+/* 621 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -61735,7 +61659,7 @@
 	});
 
 /***/ },
-/* 623 */
+/* 622 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -61801,7 +61725,7 @@
 	});
 
 /***/ },
-/* 624 */
+/* 623 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -61869,7 +61793,7 @@
 	});
 
 /***/ },
-/* 625 */
+/* 624 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -61937,7 +61861,7 @@
 	});
 
 /***/ },
-/* 626 */
+/* 625 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -62001,7 +61925,7 @@
 	});
 
 /***/ },
-/* 627 */
+/* 626 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -62069,7 +61993,7 @@
 	});
 
 /***/ },
-/* 628 */
+/* 627 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -62197,7 +62121,7 @@
 	});
 
 /***/ },
-/* 629 */
+/* 628 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -62265,7 +62189,7 @@
 	});
 
 /***/ },
-/* 630 */
+/* 629 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -62336,7 +62260,7 @@
 	});
 
 /***/ },
-/* 631 */
+/* 630 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -62405,15 +62329,15 @@
 	});
 
 /***/ },
-/* 632 */
+/* 631 */
 /***/ function(module, exports) {
 
 	// removed by extract-text-webpack-plugin
 
 /***/ },
+/* 632 */
+631,
 /* 633 */
-632,
-/* 634 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -62458,7 +62382,7 @@
 	});
 
 /***/ },
-/* 635 */
+/* 634 */
 /***/ function(module, exports, __webpack_require__, __webpack_module_template_argument_0__) {
 
 	/**
@@ -62529,17 +62453,6 @@
 	  }
 	};
 
-	var fiveArgumentPooler = function (a1, a2, a3, a4, a5) {
-	  var Klass = this;
-	  if (Klass.instancePool.length) {
-	    var instance = Klass.instancePool.pop();
-	    Klass.call(instance, a1, a2, a3, a4, a5);
-	    return instance;
-	  } else {
-	    return new Klass(a1, a2, a3, a4, a5);
-	  }
-	};
-
 	var standardReleaser = function (instance) {
 	  var Klass = this;
 	  !(instance instanceof Klass) ?  false ? invariant(false, 'Trying to release an instance into a pool of a different type.') : _prodInvariant('25') : void 0;
@@ -62579,8 +62492,7 @@
 	  oneArgumentPooler: oneArgumentPooler,
 	  twoArgumentPooler: twoArgumentPooler,
 	  threeArgumentPooler: threeArgumentPooler,
-	  fourArgumentPooler: fourArgumentPooler,
-	  fiveArgumentPooler: fiveArgumentPooler
+	  fourArgumentPooler: fourArgumentPooler
 	};
 
 	module.exports = PooledClass;
