@@ -73,6 +73,7 @@ var DatePicker = React.createClass({
     title: React.PropTypes.string,
     todayButton: React.PropTypes.string,
     utcOffset: React.PropTypes.number,
+    value: React.PropTypes.string,
     withPortal: React.PropTypes.bool
   },
 
@@ -347,7 +348,10 @@ var DatePicker = React.createClass({
     })
 
     const customInput = this.props.customInput || <input type="text" />
-    const inputValue = typeof this.state.inputValue === 'string' ? this.state.inputValue : safeDateFormat(this.props.selected, this.props)
+    const inputValue =
+      typeof this.props.value === 'string' ? this.props.value
+        : typeof this.state.inputValue === 'string' ? this.state.inputValue
+        : safeDateFormat(this.props.selected, this.props)
 
     return React.cloneElement(customInput, {
       ref: 'input',
