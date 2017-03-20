@@ -181,11 +181,15 @@ return /******/ (function(modules) { // webpackBootstrap
 	    };
 	  },
 	  getInitialState: function getInitialState() {
-	    var defaultPreSelection = this.props.openToDate ? (0, _moment2.default)(this.props.openToDate) : (0, _moment2.default)();
+	    var defaultPreSelection = this.props.openToDate ? (0, _moment2.default)(this.props.openToDate) : this.props.selectsEnd && this.props.startDate ? (0, _moment2.default)(this.props.startDate) : this.props.selectsStart && this.props.endDate ? (0, _moment2.default)(this.props.endDate) : (0, _moment2.default)();
+	    var minDate = (0, _date_utils.getEffectiveMinDate)(this.props);
+	    var maxDate = (0, _date_utils.getEffectiveMaxDate)(this.props);
+	    var boundedPreSelection = minDate && defaultPreSelection.isBefore(minDate) ? minDate : maxDate && defaultPreSelection.isAfter(maxDate) ? maxDate : defaultPreSelection;
+
 	    return {
 	      open: false,
 	      preventFocus: false,
-	      preSelection: this.props.selected ? (0, _moment2.default)(this.props.selected) : defaultPreSelection
+	      preSelection: this.props.selected ? (0, _moment2.default)(this.props.selected) : boundedPreSelection
 	    };
 	  },
 	  componentWillUnmount: function componentWillUnmount() {
